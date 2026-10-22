@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!-- §6 : site non référencé par les moteurs de recherche -->
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="color-scheme" content="light dark">
+  <title>MBC Partenaires</title>
+  <link rel="icon" href="favicon.ico">
+  <link rel="stylesheet" href="front-end/css/style.css">
+  <script src="front-end/js/theme-init.js"></script>
+</head>
+
+<!-- ===========================================================================
+     APPLICATION (après connexion). Aucune donnée n'est écrite en dur ici :
+     tout est rempli par les modules de front-end/js/ à partir de la base
+     (Supabase) ou des données de démonstration (mode "mock").
+     body[data-screen] = écran affiché (piloté par router.js)
+     =========================================================================== -->
+<body data-screen="dashboard">
+
+  <!-- Écran de chargement (masqué quand body.is-ready) -->
+  <div class="boot" id="boot" role="status" aria-live="polite">
+    <div class="boot__inner">
+      <span class="logo-mark logo-mark--lg">MBC</span>
+      <div class="boot__bar"></div>
+      <span id="boot-text">Chargement des données…</span>
+    </div>
+  </div>
+
+  <div class="app">
+
+    <!-- ===== Barre latérale (ordinateur) ===== -->
+    <aside class="sidebar" aria-label="Navigation principale">
+      <div class="sidebar__brand">
+        <span class="logo-mark">MBC</span>
+        <div><div class="sidebar__brand-name">MBC Partenaires</div><div class="sidebar__brand-sub">Saison <span data-bind="saison">—</span></div></div>
+      </div>
+      <nav class="sidebar__nav">
+        <a class="nav-link" href="#/dashboard" data-nav="dashboard"><svg class="icon"><use href="#i-dashboard"/></svg>Tableau de bord<span class="nav-link__count nav-link__count--alert" data-count="todo"></span></a>
+        <a class="nav-link" href="#/pipeline" data-nav="pipeline"><svg class="icon"><use href="#i-kanban"/></svg>Pipeline<span class="nav-link__count" data-count="pipeline"></span></a>
+        <a class="nav-link" href="#/partenaires" data-nav="partenaires"><svg class="icon"><use href="#i-building"/></svg>Partenaires<span class="nav-link__count" data-count="partenaires"></span></a>
+        <a class="nav-link" href="#/paiements" data-nav="paiements"><svg class="icon"><use href="#i-wallet"/></svg>Paiements<span class="nav-link__count nav-link__count--alert" data-count="retards"></span></a>
+        <a class="nav-link" href="#/evenements" data-nav="evenements"><svg class="icon"><use href="#i-calendar"/></svg>Événements<span class="nav-link__count" data-count="evenements"></span></a>
+
+        <p class="sidebar__section">Actions rapides</p>
+        <a class="nav-link" href="#" data-quick="new-partner"><svg class="icon"><use href="#i-plus"/></svg>Nouveau partenaire</a>
+        <a class="nav-link" href="#" data-quick="export"><svg class="icon"><use href="#i-download"/></svg>Export Excel</a>
+      </nav>
+      <div class="sidebar__footer">
+        <button type="button" class="user-chip" data-user-menu aria-haspopup="menu" aria-expanded="false">
+          <span class="avatar" data-bind="initiales">?</span>
+          <span class="user-chip__text"><span class="user-chip__name" data-bind="nom">—</span><span class="user-chip__mail" id="current-user" data-bind="email">—</span></span>
+          <svg class="icon icon--sm"><use href="#i-settings"/></svg>
+        </button>
+      </div>
+    </aside>
+
+    <div class="shell">
+      <!-- ===== Barre du haut ===== -->
+      <header class="topbar">
+        <div class="topbar__brand"><span class="logo-mark">MBC</span><span>Partenaires</span></div>
+        <h1 class="topbar__title" id="topbar-title">Tableau de bord</h1>
+        <span class="season-chip topbar__season"><svg class="icon icon--sm"><use href="#i-calendar"/></svg>Saison <span data-bind="saison">—</span></span>
+
+        <div class="topbar__spacer"></div>
+
+        <!-- Recherche globale : ouvre directement une fiche (raccourci Ctrl/⌘ + K) -->
+        <div class="gsearch" role="combobox" aria-expanded="false" aria-haspopup="listbox" aria-owns="gsearch-results">
+          <svg class="icon icon--sm gsearch__icon"><use href="#i-search"/></svg>
+          <label for="gsearch-input" class="sr-only">Rechercher un partenaire</label>
+          <input id="gsearch-input" type="search" placeholder="Rechercher un partenaire…" autocomplete="off" aria-autocomplete="list" aria-controls="gsearch-results">
+          <span class="gsearch__kbd">Ctrl K</span>
+          <div class="gsearch__results" id="gsearch-results" role="listbox" hidden></div>
+        </div>
+
+        <div class="topbar__actions">
+          <span id="sync-status" class="sync-status" role="status" aria-live="polite"><span class="sync-status__label"></span></span>
+          <!-- §4.8 : classeur Excel daté à 6 onglets -->
+          <button type="button" id="btn-export" class="btn btn--outline" title="Exporter toutes les données en Excel">
+            <svg class="icon icon--sm"><use href="#i-download"/></svg><span class="topbar__export-label">Export Excel</span>
+          </button>
+          <button type="button" class="btn btn--ghost btn--icon topbar__user" data-user-menu aria-haspopup="menu" aria-expanded="false" aria-label="Mon compte">
+            <span class="avatar" data-bind="initiales" style="width:30px;height:30px">?</span>
+          </button>
+        </div>
+      </header>
+
+      <main class="app-main" id="main">
+
+        <!-- =====================================================================
+             ÉCRAN 1 — TABLEAU DE BORD (§4.2)
+             ===================================================================== -->
+        <section id="screen-dashboard" class="screen" aria-labelledby="h-dashboard">
+          <div class="screen__head">
+            <div>
+              <h2 id="h-dashboard" class="screen__title">Bonjour <span data-bind="prenom"></span></h2>
+              <p class="screen__sub">Saison <span id="dash-saison" data-bind="saison"></span> · <span id="dash-today"></span></p>
+            </div>
+            <div class="screen__actions">
+              <a class="btn" href="#/pipeline"><svg class="icon icon--sm"><use href="#i-kanban"/></svg>Voir le pipeline</a>
+              <button type="button" class="btn btn--accent" data-quick="new-partner"><svg class="icon icon--sm"><use href="#i-plus"/></svg>Nouveau partenaire</button>
+            </div>
+          </div>
+
+          <!-- ---- Score de la saison ---- -->
+          <article class="card score" aria-labelledby="h-score">
+            <div class="score__top">
+              <div>
+                <h3 id="h-score" class="score__main-label">Score de la saison — montant signé</h3>
+                <div class="score__main">
+                  <span id="score-signed-big" class="score__signed">—</span>
+                  <span class="score__goal">/ <span id="score-goal-label">—</span></span>
+                  <span id="score-pct" class="score__pct">0 %</span>
+                </div>
+              </div>
+              <!-- L'objectif se saisit directement sur l'écran (§4.2) -->
+              <div class="score__goal-edit">
+                <label for="season-goal"><svg class="icon icon--sm" style="display:inline;vertical-align:-3px"><use href="#i-target"/></svg> Objectif (€)</label>
+                <input id="season-goal" name="objectif" type="number" min="0" step="500" inputmode="numeric">
+              </div>
+            </div>
+
+            <div>
+              <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Montant signé et encaissé par rapport à l'objectif">
+                <div class="progress__bar progress__bar--signed" style="--value: 0"></div>
+                <div class="progress__bar progress__bar--cashed" style="--value: 0"></div>
+              </div>
+              <div class="progress__legend">
+                <span><span class="legend-dot legend-dot--signed"></span>Signé</span>
+                <span><span class="legend-dot legend-dot--cashed"></span>Encaissé</span>
+              </div>
+            </div>
+
+            <div class="score__figures">
+              <div class="score__fig score__fig--success kpi"><span class="kpi__label">Signé</span><span id="score-signed" class="kpi__value">—</span></div>
+              <div class="score__fig kpi"><span class="kpi__label">Encaissé</span><span id="score-cashed" class="kpi__value">—</span></div>
+              <div class="score__fig score__fig--info kpi"><span class="kpi__label">En négociation</span><span id="score-negotiation" class="kpi__value">—</span></div>
+              <div class="score__fig kpi"><span class="kpi__label">Reste à trouver</span><span id="score-remaining" class="kpi__value">—</span></div>
+            </div>
+          </article>
+
+          <!-- ---- 4 indicateurs ---- -->
+          <div class="grid grid--kpi mt-4">
+            <article class="card kpi kpi--success">
+              <span class="kpi__label"><span class="kpi__icon"><svg class="icon icon--sm"><use href="#i-handshake"/></svg></span>Partenaires signés</span>
+              <span id="kpi-signed" class="kpi__value">—</span>
+              <span id="kpi-signed-sub" class="kpi__sub"></span>
+            </article>
+            <article class="card kpi kpi--info">
+              <span class="kpi__label"><span class="kpi__icon"><svg class="icon icon--sm"><use href="#i-sparkle"/></svg></span>En négociation</span>
+              <span id="kpi-negotiation" class="kpi__value">—</span>
+              <span id="kpi-negotiation-sub" class="kpi__sub"></span>
+            </article>
+            <article class="card kpi kpi--danger" id="kpi-late-card">
+              <span class="kpi__label"><span class="kpi__icon"><svg class="icon icon--sm"><use href="#i-alert"/></svg></span>Paiements en retard</span>
+              <span id="kpi-late" class="kpi__value">—</span>
+              <span id="kpi-late-sub" class="kpi__sub"></span>
+            </article>
+            <article class="card kpi kpi--warning">
+              <span class="kpi__label"><span class="kpi__icon"><svg class="icon icon--sm"><use href="#i-gift"/></svg></span>Contreparties livrées</span>
+              <span id="kpi-delivered" class="kpi__value">—</span>
+              <span id="kpi-delivered-sub" class="kpi__sub"></span>
+            </article>
+          </div>
+
+          <div class="grid grid--dash mt-4">
+            <!-- ---- À faire ---- -->
+            <article class="card" aria-labelledby="h-todo">
+              <div class="card__head">
+                <h3 id="h-todo" class="card__title"><svg class="icon"><use href="#i-clock"/></svg>À faire <span class="badge badge--danger" id="todo-count">0</span></h3>
+                <span class="card__sub">14 prochains jours et retards</span>
+              </div>
+              <div class="todo-scroll"><div id="todo-list" class="todo"></div></div>
+            </article>
+
+            <div class="grid">
+              <!-- ---- Pipeline : nombre et montant par étape ---- -->
+              <article class="card" aria-labelledby="h-pipeline-summary">
+                <div class="card__head">
+                  <h3 id="h-pipeline-summary" class="card__title"><svg class="icon"><use href="#i-kanban"/></svg>Pipeline</h3>
+                  <a href="#/pipeline" class="card__sub">Ouvrir →</a>
+                </div>
+                <div id="pipeline-summary"></div>
+              </article>
+
+              <!-- ---- Non renouvelés ---- -->
+              <article class="card" aria-labelledby="h-lost">
+                <div class="card__head">
+                  <h3 id="h-lost" class="card__title"><svg class="icon"><use href="#i-trendDown"/></svg>Non renouvelés</h3>
+                  <span class="badge badge--danger" id="lost-count">—</span>
+                </div>
+                <ul id="lost-list"></ul>
+              </article>
+            </div>
+          </div>
+
+          <!-- ---- Réglages du club (un seul jeu de réglages, §3) ---- -->
+          <article class="card mt-4" aria-labelledby="h-settings">
+            <div class="card__head">
+              <h3 id="h-settings" class="card__title"><svg class="icon"><use href="#i-settings"/></svg>Réglages du club</h3>
+              <span class="card__sub">Enregistrés automatiquement · changer de saison ne supprime rien</span>
+            </div>
+            <form id="settings-form" class="grid grid--2" data-no-submit>
+              <div class="form-grid form-grid--2">
+                <div class="field">
+                  <label for="set-season">Saison en cours</label>
+                  <input id="set-season" name="saison_en_cours" type="text" placeholder="2026-27" pattern="\d{4}-\d{2}">
+                </div>
+                <div class="field">
+                  <label for="set-prev">Saison précédente</label>
+                  <input id="set-prev" name="saison_precedente" type="text" placeholder="2025-26" pattern="\d{4}-\d{2}">
+                </div>
+                <div class="field full">
+                  <span class="field__label">Responsables</span>
+                  <div class="tags-input" id="owners-tags"></div>
+                  <div class="inline-add">
+                    <label for="owner-new" class="sr-only">Ajouter un responsable</label>
+                    <input id="owner-new" type="text" placeholder="Prénom Nom" class="input--sm">
+                    <button type="button" class="btn btn--small" data-add-tag="responsables">Ajouter</button>
+                  </div>
+                </div>
+              </div>
+              <div class="field">
+                <span class="field__label">Catalogue des contreparties (<span id="catalog-count">0</span>)</span>
+                <div class="tags-input" id="catalog-tags"></div>
+                <div class="inline-add">
+                  <label for="catalog-new" class="sr-only">Ajouter une contrepartie au catalogue</label>
+                  <input id="catalog-new" type="text" placeholder="Nouvelle contrepartie" class="input--sm">
+                  <button type="button" class="btn btn--small" data-add-tag="catalogue">Ajouter</button>
+                </div>
+              </div>
+            </form>
+          </article>
+        </section>
+
+        <!-- =====================================================================
+             ÉCRAN 2 — PIPELINE (§4.3) : une colonne par étape (Prospect → Perdu)
+             ===================================================================== -->
+        <section id="screen-pipeline" class="screen" aria-labelledby="h-pipeline">
+          <div class="screen__head">
+            <div>
+              <h2 id="h-pipeline" class="screen__title">Pipeline</h2>
+              <p class="screen__sub">Glissez une carte dans une autre colonne pour changer son étape · <span id="pipeline-visible-count">—</span> · archivés masqués</p>
+            </div>
+            <div class="screen__actions">
+              <button type="button" class="btn btn--accent" data-quick="new-partner"><svg class="icon icon--sm"><use href="#i-plus"/></svg>Nouveau partenaire</button>
+            </div>
+          </div>
+
+          <form class="toolbar" role="search" data-no-submit>
+            <div class="toolbar__search">
+              <svg class="icon icon--sm"><use href="#i-search"/></svg>
+              <label for="pipeline-search" class="sr-only">Filtrer le pipeline</label>
+              <input id="pipeline-search" type="search" placeholder="Filtrer les cartes : nom, secteur, responsable…">
+            </div>
+            <div class="toolbar__select">
+              <label for="pipeline-filter-owner" class="sr-only">Responsable</label>
+              <select id="pipeline-filter-owner"><option value="">Tous les responsables</option></select>
+            </div>
+          </form>
+
+          <div id="kanban" class="kanban"></div>
+        </section>
+
+        <!-- =====================================================================
+             ÉCRAN 3 — PARTENAIRES (§4.4)
+             ===================================================================== -->
+        <section id="screen-partenaires" class="screen" aria-labelledby="h-partners">
+          <div class="screen__head">
+            <div>
+              <h2 id="h-partners" class="screen__title">Partenaires</h2>
+              <p class="screen__sub"><span id="partners-count">—</span></p>
+            </div>
+            <div class="screen__actions">
+              <button type="button" id="btn-new-partner" class="btn btn--accent"><svg class="icon icon--sm"><use href="#i-plus"/></svg>Nouveau partenaire</button>
+            </div>
+          </div>
+
+          <form class="toolbar" role="search" data-no-submit>
+            <div class="toolbar__search">
+              <svg class="icon icon--sm"><use href="#i-search"/></svg>
+              <label for="partner-search" class="sr-only">Rechercher un partenaire</label>
+              <input id="partner-search" name="q" type="search" placeholder="Rechercher : nom, secteur, contact, notes…">
+            </div>
+            <div class="toolbar__select">
+              <label for="filter-owner" class="sr-only">Filtrer par responsable</label>
+              <select id="filter-owner" name="responsable"><option value="">Tous les responsables</option></select>
+            </div>
+          </form>
+
+          <div class="chips" role="group" aria-label="Filtrer par état" style="margin-bottom: var(--space-4)">
+            <button type="button" class="chip chip--active" data-filter="actifs" aria-pressed="true">Actifs <span class="chip__count"></span></button>
+            <button type="button" class="chip" data-filter="negociation" aria-pressed="false">En négociation <span class="chip__count"></span></button>
+            <button type="button" class="chip" data-filter="signes" aria-pressed="false">Signés <span class="chip__count"></span></button>
+            <button type="button" class="chip" data-filter="prospects" aria-pressed="false">Prospects <span class="chip__count"></span></button>
+            <button type="button" class="chip" data-filter="perdus" aria-pressed="false">Perdus <span class="chip__count"></span></button>
+            <button type="button" class="chip" data-filter="archives" aria-pressed="false">Archivés <span class="chip__count"></span></button>
+            <button type="button" class="chip" data-filter="tous" aria-pressed="false">Tous <span class="chip__count"></span></button>
+          </div>
+
+          <div class="table-wrap">
+            <table class="table table--cards">
+              <caption class="sr-only">Liste des partenaires — triable par colonne</caption>
+              <thead>
+                <tr>
+                  <th scope="col" data-sort="nom" aria-sort="ascending">Partenaire</th>
+                  <th scope="col" data-sort="etape">Étape</th>
+                  <th scope="col" data-sort="responsable">Responsable</th>
+                  <th scope="col" class="num" data-sort="montant">Montant</th>
+                  <th scope="col" data-sort="encaisse">Encaissé / prévu</th>
+                  <th scope="col" data-sort="contreparties">Contreparties</th>
+                  <th scope="col" data-sort="action">Prochaine action</th>
+                </tr>
+              </thead>
+              <tbody id="partners-tbody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- =====================================================================
+             ÉCRAN 4 — PAIEMENTS (§4.6)
+             ===================================================================== -->
+        <section id="screen-paiements" class="screen" aria-labelledby="h-payments">
+          <div class="screen__head">
+            <div>
+              <h2 id="h-payments" class="screen__title">Paiements</h2>
+              <p class="screen__sub">Échéances de la saison <span data-bind="saison"></span> · cochez « payé » directement dans la liste</p>
+            </div>
+          </div>
+
+          <div class="grid grid--kpi">
+            <article class="card kpi"><span class="kpi__label"><span class="kpi__icon"><svg class="icon icon--sm"><use href="#i-receipt"/></svg></span>Total attendu</span><span id="pay-expected" class="kpi__value">—</span><span class="kpi__sub">Somme des échéances</span></article>
+            <article class="card kpi kpi--success"><span class="kpi__label"><span class="kpi__icon"><svg class="icon icon--sm"><use href="#i-check"/></svg></span>Encaissé</span><span id="pay-cashed" class="kpi__value">—</span><span id="pay-cashed-pct" class="kpi__sub"></span></article>
+            <article class="card kpi kpi--info"><span class="kpi__label"><span class="kpi__icon"><svg class="icon icon--sm"><use href="#i-wallet"/></svg></span>Reste à encaisser</span><span id="pay-remaining" class="kpi__value">—</span><span class="kpi__sub">Échéances non payées</span></article>
+            <article class="card kpi kpi--danger" id="pay-late-card"><span class="kpi__label"><span class="kpi__icon"><svg class="icon icon--sm"><use href="#i-alert"/></svg></span>En retard</span><span id="pay-late" class="kpi__value">—</span><span id="pay-late-sub" class="kpi__sub"></span></article>
+          </div>
+
+          <div class="chips" role="group" aria-label="Filtrer les échéances" style="margin: var(--space-5) 0 var(--space-4)">
+            <button type="button" class="chip chip--active" data-filter="a-encaisser" aria-pressed="true">À encaisser <span class="chip__count"></span></button>
+            <button type="button" class="chip" data-filter="en-retard" aria-pressed="false">En retard <span class="chip__count"></span></button>
+            <button type="button" class="chip" data-filter="encaisses" aria-pressed="false">Encaissés <span class="chip__count"></span></button>
+            <button type="button" class="chip" data-filter="tout" aria-pressed="false">Tout <span class="chip__count"></span></button>
+          </div>
+
+          <div id="payments-list" aria-live="polite"></div>
+        </section>
+
+        <!-- =====================================================================
+             ÉCRAN 5 — ÉVÉNEMENTS (§4.7)
+             ===================================================================== -->
+        <section id="screen-evenements" class="screen" aria-labelledby="h-events">
+          <div class="screen__head">
+            <div>
+              <h2 id="h-events" class="screen__title">Événements</h2>
+              <p class="screen__sub">Afterworks, matchs, Business Club : invitations et présences des partenaires</p>
+            </div>
+            <div class="screen__actions">
+              <button type="button" id="btn-new-event" class="btn btn--accent"><svg class="icon icon--sm"><use href="#i-plus"/></svg>Nouvel événement</button>
+            </div>
+          </div>
+
+          <div class="events-layout">
+            <article class="card card--flush">
+              <div id="events-empty" class="empty" hidden>
+                <svg class="icon"><use href="#i-calendar"/></svg>
+                Aucun événement pour l'instant.
+                <button type="button" class="btn btn--small" data-quick="new-event">Créer un événement</button>
+              </div>
+              <div id="events-list"></div>
+            </article>
+
+            <article class="card" id="event-detail" aria-labelledby="h-event-detail">
+              <div class="card__head">
+                <h3 id="h-event-detail" class="card__title" style="font-size: var(--text-lg)">Événement</h3>
+                <button type="button" class="btn btn--danger btn--small" id="btn-delete-event"><svg class="icon icon--sm"><use href="#i-trash"/></svg><span>Supprimer l'événement</span></button>
+              </div>
+
+              <form id="event-form" class="form-grid form-grid--3" data-no-submit>
+                <div class="field"><label for="evt-name">Nom</label><input id="evt-name" name="nom" type="text" required></div>
+                <div class="field"><label for="evt-date">Date</label><input id="evt-date" name="date" type="date"></div>
+                <div class="field">
+                  <label for="evt-type">Type</label>
+                  <select id="evt-type" name="type"><option>Afterwork</option><option>Match</option><option>Business Club</option><option>Autre</option></select>
+                </div>
+              </form>
+
+              <div class="event-stats" id="event-stats"></div>
+
+              <h4 style="margin: 0 0 var(--space-2)">Présences par partenaire</h4>
+              <div class="table-wrap">
+                <table class="table table--cards table--compact">
+                  <thead><tr><th scope="col">Partenaire</th><th scope="col">Présence</th><th scope="col" class="num">Personnes</th><th scope="col">Noms</th><th scope="col"><span class="sr-only">Retirer</span></th></tr></thead>
+                  <tbody id="attendance-tbody"></tbody>
+                </table>
+              </div>
+
+              <div class="inline-add" style="margin-top: var(--space-3); flex-wrap: wrap">
+                <label for="add-guest" class="sr-only">Ajouter un partenaire</label>
+                <select id="add-guest" style="max-width: 320px"><option value="">Ajouter un partenaire…</option></select>
+                <button type="button" class="btn btn--small" id="btn-invite-signed"><svg class="icon icon--sm"><use href="#i-users"/></svg>Inviter tous les signés</button>
+              </div>
+            </article>
+          </div>
+        </section>
+      </main>
+
+      <footer class="app-footer">
+        MBC Partenaires · Données personnelles de contacts professionnels (finalité : relation partenaires, base légale : intérêt légitime) · Hébergement en Europe · Pensez à l'export Excel mensuel
+      </footer>
+    </div>
+
+    <!-- ===== Navigation basse (mobile) ===== -->
+    <nav class="bottomnav" aria-label="Navigation principale">
+      <a href="#/dashboard" data-nav="dashboard"><svg class="icon"><use href="#i-dashboard"/></svg>Accueil<span class="nav-dot" data-count="todo"></span></a>
+      <a href="#/pipeline" data-nav="pipeline"><svg class="icon"><use href="#i-kanban"/></svg>Pipeline</a>
+      <a href="#/partenaires" data-nav="partenaires"><svg class="icon"><use href="#i-building"/></svg>Partenaires</a>
+      <a href="#/paiements" data-nav="paiements"><svg class="icon"><use href="#i-wallet"/></svg>Paiements<span class="nav-dot" data-count="retards"></span></a>
+      <a href="#/evenements" data-nav="evenements"><svg class="icon"><use href="#i-calendar"/></svg>Événements</a>
+    </nav>
+  </div>
+
+  <!-- ===== Menu du compte (§4.1 : mot de passe, déconnexion) ===== -->
+  <div id="user-menu" class="menu" role="menu" hidden>
+    <div class="menu__head"><strong data-bind="nom">—</strong><br><span class="muted" style="font-size: var(--text-xs)" data-bind="email">—</span></div>
+    <button type="button" class="menu__item" role="menuitem" id="btn-password"><svg class="icon icon--sm"><use href="#i-key"/></svg>Changer le mot de passe</button>
+    <div class="menu__item" role="group" aria-label="Thème" style="cursor:default">
+      <svg class="icon icon--sm"><use href="#i-moon"/></svg>Thème
+      <span class="segmented" style="margin-left:auto" id="theme-switch">
+        <button type="button" data-theme-choice="light" aria-label="Clair" title="Clair"><svg class="icon icon--sm"><use href="#i-sun"/></svg></button>
+        <button type="button" data-theme-choice="auto" aria-label="Automatique" title="Automatique (système)"><svg class="icon icon--sm"><use href="#i-monitor"/></svg></button>
+        <button type="button" data-theme-choice="dark" aria-label="Sombre" title="Sombre"><svg class="icon icon--sm"><use href="#i-moon"/></svg></button>
+      </span>
+    </div>
+    <button type="button" class="menu__item" role="menuitem" data-quick="export"><svg class="icon icon--sm"><use href="#i-download"/></svg>Export Excel</button>
+    <div class="menu__sep"></div>
+    <button type="button" class="menu__item menu__item--danger" role="menuitem" id="btn-logout"><svg class="icon icon--sm"><use href="#i-logout"/></svg>Se déconnecter</button>
+  </div>
+
+  <!-- ===== FICHE PARTENAIRE (§4.5) : panneau latéral ouvert via #/ecran?fiche=id ===== -->
+  <div id="fiche-partenaire" class="drawer-overlay" role="dialog" aria-modal="true" aria-labelledby="fiche-title" hidden>
+    <button type="button" class="drawer-overlay__backdrop" data-close-fiche aria-label="Fermer la fiche" tabindex="-1"></button>
+
+    <aside class="drawer" tabindex="-1">
+      <header class="drawer__head">
+        <div class="drawer__top">
+          <h2 id="fiche-title" class="drawer__title">—</h2>
+          <button type="button" class="btn btn--ghost btn--icon" data-close-fiche aria-label="Fermer la fiche (Échap)"><svg class="icon"><use href="#i-x"/></svg></button>
+        </div>
+        <div id="fiche-badges" class="drawer__badges"></div>
+        <!-- En-tête : étape, type, responsable — enregistrés à la sortie du champ -->
+        <div class="fiche-quick">
+          <div class="field">
+            <label for="f-stage">Étape</label>
+            <!-- Tout changement d'étape alimente l'historique : « Étape : ancienne → nouvelle » -->
+            <select id="f-stage" data-table="partenaires" data-field="etape">
+              <option>Prospect</option><option>Contacté</option><option>RDV</option><option>Proposition</option>
+              <option>Négociation</option><option>Signé</option><option>Perdu</option><option>Archivé</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="f-type">Type</label>
+            <select id="f-type" data-table="partenaires" data-field="type">
+              <option>Sponsoring</option><option>Mécénat</option><option>Sponsoring + mécénat</option>
+              <option>En nature</option><option>Média</option><option>Institution</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="f-owner">Responsable</label>
+            <select id="f-owner" data-table="partenaires" data-field="responsable"><option>—</option></select>
+          </div>
+        </div>
+      </header>
+
+      <div class="drawer__body">
+        <div class="fiche-summary" id="fiche-summary"></div>
+
+        <!-- Prochaine action -->
+        <details class="section" open>
+          <summary><svg class="icon icon--sm"><use href="#i-clock"/></svg>Prochaine action <span id="fiche-action-state"></span></summary>
+          <div class="section__body">
+            <div class="form-grid form-grid--date">
+              <div class="field"><label for="f-next-date">Date</label><input id="f-next-date" data-table="partenaires" data-field="prochaineActionDate" type="date"></div>
+              <div class="field"><label for="f-next-text">Action</label><input id="f-next-text" data-table="partenaires" data-field="prochaineActionTexte" type="text" placeholder="Ex. : relancer par téléphone"></div>
+            </div>
+            <!-- « Marquer comme faite » : ajoute l'action à l'historique puis vide les champs -->
+            <button type="button" class="btn btn--small mt-4" data-action="action-faite"><svg class="icon icon--sm"><use href="#i-check"/></svg>Marquer comme faite</button>
+          </div>
+        </details>
+
+        <!-- Contrat de la saison -->
+        <details class="section" open>
+          <summary><svg class="icon icon--sm"><use href="#i-file"/></svg>Contrat de la saison <span id="fiche-saison"></span></summary>
+          <div class="section__body">
+            <div class="form-grid form-grid--2">
+              <div class="field"><label for="c-asked">Montant demandé (€)</label><input id="c-asked" data-table="contrats" data-field="montantDemande" type="number" min="0" step="50"></div>
+              <div class="field"><label for="c-fee-asked">Cotisation demandée (€)</label><input id="c-fee-asked" data-table="contrats" data-field="cotisationDemandee" type="number" min="0" step="50"></div>
+              <div class="field"><label for="c-valid">Montant validé (€)</label><input id="c-valid" data-table="contrats" data-field="montantValide" type="number" min="0" step="50"></div>
+              <div class="field"><label for="c-fee-valid">Cotisation validée (€)</label><input id="c-fee-valid" data-table="contrats" data-field="cotisationValidee" type="number" min="0" step="50"></div>
+              <div class="field"><label for="c-patronage">Dont mécénat (€)</label><input id="c-patronage" data-table="contrats" data-field="dontMecenat" type="number" min="0" step="50"></div>
+              <div class="field"><label for="c-kind-value">Apport en nature (€)</label><input id="c-kind-value" data-table="contrats" data-field="natureValeur" type="number" min="0" step="50"></div>
+              <div class="field full"><label for="c-kind-desc">Description de l'apport en nature</label><input id="c-kind-desc" data-table="contrats" data-field="natureDescription" type="text"></div>
+              <div class="field full"><label for="c-terms">Modalités de paiement</label><input id="c-terms" data-table="contrats" data-field="modalites" type="text" placeholder="Ex. : 8 versements d'octobre à mai"></div>
+            </div>
+            <!-- Visible seulement s'il existe une part de mécénat -->
+            <div class="field field--inline mt-4" id="cerfa-field">
+              <input id="c-cerfa" data-table="contrats" data-field="cerfaEmis" type="checkbox">
+              <label for="c-cerfa">Reçu CERFA émis</label>
+            </div>
+            <p class="contract-total">
+              <span>Total validé : <strong id="c-total">—</strong></span>
+              <span>Total demandé : <strong id="c-total-asked">—</strong></span>
+              <span>Saison <span data-bind="saison-prec"></span> : <strong id="c-prev">—</strong></span>
+            </p>
+          </div>
+        </details>
+
+        <!-- Échéancier -->
+        <details class="section">
+          <summary><svg class="icon icon--sm"><use href="#i-wallet"/></svg>Échéancier <span class="section__count" id="count-schedule"></span></summary>
+          <div class="section__body">
+            <div class="table-wrap">
+              <table class="table schedule-table">
+                <thead><tr><th scope="col">Payé</th><th scope="col">Date</th><th scope="col" class="num">Montant</th><th scope="col">Note</th><th scope="col"><span class="sr-only">Supprimer</span></th></tr></thead>
+                <tbody id="schedule-tbody"></tbody>
+              </table>
+            </div>
+            <!-- Alerte si Σ échéances ≠ total validé -->
+            <p class="alert alert--warning mt-4" id="schedule-alert" role="status" hidden></p>
+            <button type="button" class="btn btn--small mt-4" data-action="add-echeance"><svg class="icon icon--sm"><use href="#i-plus"/></svg>Ajouter une échéance</button>
+
+            <!-- Générateur (§5 règle 3) -->
+            <div class="generator" id="schedule-generator">
+              <p class="generator__title"><svg class="icon icon--sm"><use href="#i-sparkle"/></svg>Générer un échéancier mensuel</p>
+              <div class="form-grid form-grid--3">
+                <div class="field"><label for="g-amount">Montant (€)</label><input id="g-amount" type="number" min="0" step="50"></div>
+                <div class="field"><label for="g-count">Versements</label><input id="g-count" type="number" min="1" max="24" value="8"></div>
+                <div class="field"><label for="g-start">1er versement</label><input id="g-start" type="date"></div>
+              </div>
+              <p class="field__hint mt-4">Les échéances déjà payées sont conservées ; les non payées sont remplacées. Le dernier versement absorbe l'arrondi.</p>
+              <button type="button" class="btn btn--small mt-4" data-action="generer">Générer</button>
+            </div>
+          </div>
+        </details>
+
+        <!-- Contreparties -->
+        <details class="section">
+          <summary><svg class="icon icon--sm"><use href="#i-gift"/></svg>Contreparties <span class="section__count" id="count-cp"></span></summary>
+          <div class="section__body">
+            <ul id="counterparts-list" class="cp-list"></ul>
+            <div class="inline-add" style="flex-wrap: wrap; margin-top: var(--space-3)">
+              <label for="cp-catalog" class="sr-only">Ajouter depuis le catalogue</label>
+              <select id="cp-catalog" class="input--sm" style="flex: 1 1 200px"><option value="">Ajouter depuis le catalogue…</option></select>
+              <label for="cp-free" class="sr-only">Contrepartie en texte libre</label>
+              <input id="cp-free" type="text" class="input--sm" placeholder="…ou texte libre" style="flex: 1 1 160px">
+              <button type="button" class="btn btn--small" data-action="add-cp">Ajouter</button>
+            </div>
+          </div>
+        </details>
+
+        <!-- Contacts -->
+        <details class="section">
+          <summary><svg class="icon icon--sm"><use href="#i-users"/></svg>Contacts <span class="section__count" id="count-contacts"></span></summary>
+          <div class="section__body">
+            <div id="contacts-list"></div>
+            <button type="button" class="btn btn--small" data-action="add-contact"><svg class="icon icon--sm"><use href="#i-plus"/></svg>Ajouter un contact</button>
+          </div>
+        </details>
+
+        <!-- Historique -->
+        <details class="section">
+          <summary><svg class="icon icon--sm"><use href="#i-history"/></svg>Historique des échanges <span class="section__count" id="count-history"></span></summary>
+          <div class="section__body">
+            <div class="form-grid form-grid--date">
+              <div class="field"><label for="h-date">Date</label><input id="h-date" type="date"></div>
+              <div class="field"><label for="h-text">Échange</label><textarea id="h-text" rows="2" placeholder="Ex. : appel, RDV, e-mail…" style="min-height: 40px"></textarea></div>
+            </div>
+            <button type="button" class="btn btn--small mt-4" data-action="add-echange"><svg class="icon icon--sm"><use href="#i-plus"/></svg>Ajouter à l'historique</button>
+            <div id="history-list" class="timeline mt-5"></div>
+          </div>
+        </details>
+
+        <!-- Présences -->
+        <details class="section">
+          <summary><svg class="icon icon--sm"><use href="#i-calendar"/></svg>Présences aux événements <span class="section__count" id="count-attendance"></span></summary>
+          <div class="section__body"><ul id="fiche-attendance" class="cp-list"></ul></div>
+        </details>
+
+        <!-- Informations -->
+        <details class="section" open>
+          <summary><svg class="icon icon--sm"><use href="#i-info"/></svg>Informations</summary>
+          <div class="section__body">
+            <div class="form-grid form-grid--2">
+              <div class="field"><label for="i-name">Nom de l'entreprise</label><input id="i-name" data-table="partenaires" data-field="nom" type="text"></div>
+              <div class="field"><label for="i-sector">Secteur</label><input id="i-sector" data-table="partenaires" data-field="secteur" type="text"></div>
+              <div class="field full"><label for="i-notes">Notes</label><textarea id="i-notes" data-table="partenaires" data-field="notes"></textarea></div>
+            </div>
+            <div class="danger-zone">
+              <p class="field__hint">Premier contact : <span id="i-first">—</span><br>Dernière modification : <span id="i-updated">—</span></p>
+              <!-- Suppression en deux clics -->
+              <button type="button" class="btn btn--danger btn--small" data-action="supprimer-fiche"><svg class="icon icon--sm"><use href="#i-trash"/></svg><span>Supprimer la fiche</span></button>
+            </div>
+          </div>
+        </details>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ===== Modale : nouveau partenaire (§5 règle 4) ===== -->
+  <div id="modal-new-partner" class="modal" hidden>
+    <div class="modal__backdrop" data-close-modal></div>
+    <div class="modal__panel card" role="dialog" aria-modal="true" aria-labelledby="h-new-partner">
+      <div class="modal__head">
+        <h2 id="h-new-partner">Nouveau partenaire</h2>
+        <button type="button" class="btn btn--ghost btn--icon" data-close-modal aria-label="Fermer"><svg class="icon"><use href="#i-x"/></svg></button>
+      </div>
+      <form id="form-new-partner" class="form-grid form-grid--2" novalidate>
+        <div class="field full">
+          <label for="np-nom">Nom de l'entreprise *</label>
+          <input id="np-nom" name="nom" type="text" required autocomplete="off">
+          <p id="np-duplicate" class="alert alert--warning" role="alert" hidden></p>
+        </div>
+        <div class="field"><label for="np-secteur">Secteur</label><input id="np-secteur" name="secteur" type="text"></div>
+        <div class="field">
+          <label for="np-etape">Étape</label>
+          <select id="np-etape" name="etape"><option>Prospect</option><option>Contacté</option><option>RDV</option><option>Proposition</option><option>Négociation</option><option>Signé</option></select>
+        </div>
+        <div class="field">
+          <label for="np-type">Type</label>
+          <select id="np-type" name="type"><option>Sponsoring</option><option>Mécénat</option><option>Sponsoring + mécénat</option><option>En nature</option><option>Média</option><option>Institution</option></select>
+        </div>
+        <div class="field">
+          <label for="np-resp">Responsable</label>
+          <select id="np-resp" name="responsable"><option value="">—</option></select>
+        </div>
+        <div class="field"><label for="np-montant">Montant demandé (€)</label><input id="np-montant" name="montant" type="number" min="0" step="50" value="0"></div>
+        <div class="field"><label>Cotisation demandée</label><input type="text" value="200 € (par défaut)" disabled></div>
+        <div class="field"><label for="np-adate">Prochaine action — date</label><input id="np-adate" name="actionDate" type="date"></div>
+        <div class="field"><label for="np-atexte">Prochaine action</label><input id="np-atexte" name="actionTexte" type="text" placeholder="Ex. : appeler"></div>
+        <div class="modal__foot">
+          <button type="button" class="btn btn--ghost" data-close-modal>Annuler</button>
+          <button type="submit" class="btn btn--accent">Créer la fiche</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ===== Modale : nouvel événement ===== -->
+  <div id="modal-new-event" class="modal" hidden>
+    <div class="modal__backdrop" data-close-modal></div>
+    <div class="modal__panel modal__panel--sm card" role="dialog" aria-modal="true" aria-labelledby="h-new-event">
+      <div class="modal__head">
+        <h2 id="h-new-event">Nouvel événement</h2>
+        <button type="button" class="btn btn--ghost btn--icon" data-close-modal aria-label="Fermer"><svg class="icon"><use href="#i-x"/></svg></button>
+      </div>
+      <form id="form-new-event" class="form-grid">
+        <div class="field"><label for="ne-nom">Nom *</label><input id="ne-nom" name="nom" type="text" required placeholder="Ex. : Afterwork de décembre"></div>
+        <div class="form-grid form-grid--2">
+          <div class="field"><label for="ne-date">Date *</label><input id="ne-date" name="date" type="date" required></div>
+          <div class="field">
+            <label for="ne-type">Type</label>
+            <select id="ne-type" name="type"><option>Afterwork</option><option>Match</option><option>Business Club</option><option>Autre</option></select>
+          </div>
+        </div>
+        <div class="field field--inline">
+          <input id="ne-prefill" name="prefill" type="checkbox" checked>
+          <label for="ne-prefill">Pré-remplir avec les partenaires signés (<span id="ne-signed-count">0</span>)</label>
+        </div>
+        <div class="modal__foot">
+          <button type="button" class="btn btn--ghost" data-close-modal>Annuler</button>
+          <button type="submit" class="btn btn--accent">Créer l'événement</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ===== Modale : changement de mot de passe (§4.1) ===== -->
+  <div id="modal-password" class="modal" hidden>
+    <div class="modal__backdrop" data-close-modal></div>
+    <div class="modal__panel modal__panel--sm card" role="dialog" aria-modal="true" aria-labelledby="h-password">
+      <div class="modal__head">
+        <h2 id="h-password">Changer le mot de passe</h2>
+        <button type="button" class="btn btn--ghost btn--icon" data-close-modal aria-label="Fermer"><svg class="icon"><use href="#i-x"/></svg></button>
+      </div>
+      <form id="form-password" class="form-grid">
+        <div class="field"><label for="pw-new">Nouveau mot de passe</label><input id="pw-new" type="password" minlength="8" autocomplete="new-password" required><span class="field__hint">8 caractères minimum</span></div>
+        <div class="field"><label for="pw-confirm">Confirmer</label><input id="pw-confirm" type="password" minlength="8" autocomplete="new-password" required></div>
+        <p id="pw-error" class="alert alert--danger" role="alert" hidden></p>
+        <div class="modal__foot">
+          <button type="button" class="btn btn--ghost" data-close-modal>Annuler</button>
+          <button type="submit" class="btn btn--accent">Enregistrer</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Message « Enregistré » -->
+  <div id="toast" class="toast" role="status" aria-live="polite">Enregistré</div>
+
+  <script type="module" src="front-end/js/app.js"></script>
+</body>
+</html>

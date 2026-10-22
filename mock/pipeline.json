@@ -1,0 +1,12 @@
+{
+  "saison": "2026-27",
+  "colonnes": [
+    { "id": "Prospect", "slug": "prospect", "description": "Entreprises identifiées, pas encore contactées" },
+    { "id": "Contacté", "slug": "contacte", "description": "Premier contact établi" },
+    { "id": "RDV", "slug": "rdv", "description": "Rendez-vous fixé ou à confirmer" },
+    { "id": "Proposition", "slug": "proposition", "description": "Offre / devis envoyé" },
+    { "id": "Négociation", "slug": "negociation", "description": "Discussion sur le pack et le montant" },
+    { "id": "Signé", "slug": "signe", "description": "Accord validé pour la saison" },
+    { "id": "Perdu", "slug": "perdu", "description": "Non reconduit ou refusé" }
+  ]
+}

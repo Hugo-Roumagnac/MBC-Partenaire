@@ -1,0 +1,15 @@
+/* ==========================================================================
+   style.css — POINT D'ENTRÉE UNIQUE DES STYLES
+   --------------------------------------------------------------------------
+   Les pages HTML ne chargent que ce fichier. L'ordre des imports compte :
+   1. variables  → jetons de design (couleurs, espacements)
+   2. base       → reset, typographie, formulaires, boutons
+   3. layout     → structure de la page, onglets, panneau latéral
+   4. components → cartes, tableaux, badges...
+   5. screens    → styles propres à chaque écran
+   ========================================================================== */
+@import url("variables.css");
+@import url("base.css");
+@import url("layout.css");
+@import url("components.css");
+@import url("screens.css");

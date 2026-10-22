@@ -1,0 +1,37 @@
+[
+  {
+    "id": "evt-1",
+    "nom": "Afterwork de rentrée",
+    "date": "2026-09-12",
+    "type": "Afterwork",
+    "presences": [
+      { "partnerId": "myjob", "presence": "Oui", "personnes": 2, "noms": "Exemple Un, Exemple Deux" },
+      { "partnerId": "safti", "presence": "Oui", "personnes": 3, "noms": "Léa, Marc, Nina" },
+      { "partnerId": "harmonie", "presence": "En attente", "personnes": 0, "noms": "" },
+      { "partnerId": "intermarche", "presence": "Oui", "personnes": 4, "noms": "Équipe magasin" },
+      { "partnerId": "proxisure", "presence": "Non", "personnes": 0, "noms": "" }
+    ]
+  },
+  {
+    "id": "evt-2",
+    "nom": "Match sponsors",
+    "date": "2026-10-03",
+    "type": "Match",
+    "presences": [
+      { "partnerId": "myjob", "presence": "En attente", "personnes": 0, "noms": "" },
+      { "partnerId": "safti", "presence": "Oui", "personnes": 2, "noms": "Agence" },
+      { "partnerId": "credit-agricole", "presence": "Oui", "personnes": 5, "noms": "Pôle mécénat" },
+      { "partnerId": "decathlon", "presence": "Oui", "personnes": 3, "noms": "Rayon club" }
+    ]
+  },
+  {
+    "id": "evt-3",
+    "nom": "Business Club d'automne",
+    "date": "2026-11-14",
+    "type": "Business Club",
+    "presences": [
+      { "partnerId": "myjob", "presence": "En attente", "personnes": 0, "noms": "" },
+      { "partnerId": "harmonie", "presence": "En attente", "personnes": 0, "noms": "" }
+    ]
+  }
+]

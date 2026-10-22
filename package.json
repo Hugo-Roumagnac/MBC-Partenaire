@@ -1,0 +1,11 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "test:e2e": "node tests/e2e/smoke.cjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.64.1"
+  }
+}

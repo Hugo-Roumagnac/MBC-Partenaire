@@ -1,0 +1,21 @@
+# netlify.toml — déploiement par glisser-déposer : en-têtes de sécurité et non-indexation (§6 du PDF)
+[build]
+  publish = "."                                   # le dépôt entier est publié tel quel (aucun build)
+
+[[headers]]
+  for = "/*"                                      # toutes les pages
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"            # site non référencé (§6)
+    X-Content-Type-Options = "nosniff"            # pas de « sniffing » MIME
+    Referrer-Policy = "same-origin"               # ne divulgue pas l'URL à des tiers
+    Content-Security-Policy = "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://cdn.sheetjs.com; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://cdn.jsdelivr.net https://cdn.sheetjs.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; frame-ancestors 'none'" # scripts : nous + Supabase + SheetJS
+
+# Anciennes adresses → nouvelles pages
+[[redirects]]
+  from = "/front-end/html/login.html"
+  to = "/"
+  status = 301
+[[redirects]]
+  from = "/front-end/html/index.html"
+  to = "/app.html"
+  status = 301

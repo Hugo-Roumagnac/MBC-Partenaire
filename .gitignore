@@ -1,0 +1,11 @@
+# Fichiers système macOS
+.DS_Store
+*/.DS_Store
+
+# Dépendances Node (playwright, etc.)
+node_modules/
+
+# RGPD : jamais de données réelles dans le dépôt
+supabase/import-donnees.sql
+*.xlsx
+*.numbers

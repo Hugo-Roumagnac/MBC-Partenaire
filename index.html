@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!-- §6 : site non référencé par les moteurs de recherche -->
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="color-scheme" content="light dark">
+  <title>Connexion · MBC Partenaires</title>
+  <link rel="icon" href="favicon.ico">
+  <link rel="stylesheet" href="front-end/css/style.css">
+  <script src="front-end/js/theme-init.js"></script>
+</head>
+<body>
+
+  <!-- =====================================================================
+       PAGE D'ACCUEIL = ÉCRAN DE CONNEXION (§4.1)
+       Connexion par e-mail + mot de passe. Pas d'inscription libre (§6) :
+       les comptes sont créés uniquement par un administrateur.
+       ===================================================================== -->
+  <div class="login">
+
+    <!-- Panneau de présentation (masqué sur mobile) -->
+    <aside class="login__aside" aria-hidden="true">
+      <!-- Tracé de demi-terrain, purement décoratif -->
+      <svg class="login__court" viewBox="0 0 400 400" fill="none" stroke="currentColor" stroke-width="3">
+        <rect x="20" y="20" width="360" height="360" rx="4"/>
+        <circle cx="200" cy="20" r="60"/>
+        <rect x="140" y="20" width="120" height="150"/>
+        <circle cx="200" cy="170" r="60"/>
+        <path d="M60 20v60a140 140 0 0 0 280 0V20"/>
+        <circle cx="200" cy="380" r="60"/>
+      </svg>
+      <div class="login__aside-inner">
+        <div class="login__logo"><span class="logo-mark logo-mark--lg">MBC</span> MBC Partenaires</div>
+        <div class="login__pitch">
+          <h2>Chaque partenaire, <em>du premier contact</em> à l'encaissement.</h2>
+          <p>L'outil partagé de l'équipe partenariats : pipeline, contrats de saison, échéancier, contreparties et événements du Business Club.</p>
+        </div>
+        <div class="login__features">
+          <div class="login__feature"><svg class="icon"><use href="#i-target"/></svg><span>Score de la saison en temps réel face à l'objectif</span></div>
+          <div class="login__feature"><svg class="icon"><use href="#i-clock"/></svg><span>Relances, paiements en retard et reçus CERFA à ne plus oublier</span></div>
+          <div class="login__feature"><svg class="icon"><use href="#i-users"/></svg><span>Modifications partagées instantanément entre les membres</span></div>
+        </div>
+        <p class="login__foot">Accès réservé aux membres de l'équipe partenariats.</p>
+      </div>
+    </aside>
+
+    <main class="login__main">
+      <section class="login__card" aria-labelledby="login-title">
+        <div class="login__brand-mobile"><span class="logo-mark">MBC</span> MBC Partenaires</div>
+
+        <!-- ===== Vue 1 : connexion ===== -->
+        <div id="view-login">
+          <header class="login__brand">
+            <h1 id="login-title">Connexion</h1>
+            <p>Suivi des partenaires — saison <span id="login-season">2026-27</span></p>
+          </header>
+
+          <!-- Les attributs name="email" et name="password" sont lus par login.js. -->
+          <form id="login-form" class="login__form" novalidate>
+            <div class="field">
+              <label for="login-email">Adresse e-mail</label>
+              <input id="login-email" name="email" type="email" autocomplete="username" inputmode="email" placeholder="prenom@club.fr" required>
+            </div>
+
+            <div class="field">
+              <div class="login__row">
+                <label for="login-password" class="field__label">Mot de passe</label>
+                <a href="#" id="forgot-password" style="font-size: var(--text-sm); font-weight: 600">Mot de passe oublié ?</a>
+              </div>
+              <div class="password">
+                <!-- §6 : 8 caractères minimum -->
+                <input id="login-password" name="password" type="password" minlength="8" autocomplete="current-password" placeholder="8 caractères minimum" required>
+                <button type="button" class="btn btn--ghost btn--icon btn--small password__toggle" data-toggle-password="login-password" aria-label="Afficher le mot de passe">
+                  <svg class="icon icon--sm"><use href="#i-eye"/></svg>
+                </button>
+              </div>
+            </div>
+
+            <!-- Zone d'erreur : identifiants invalides, saisie incomplète… -->
+            <p id="login-error" class="alert alert--danger" role="alert" hidden></p>
+            <!-- Message d'information (lien de réinitialisation envoyé…) -->
+            <p id="login-info" class="alert alert--info" role="status" hidden></p>
+            <!-- §4.1 : compte connecté mais absent de la liste des membres -->
+            <div id="login-unauthorized" class="alert alert--warning" role="alert" hidden>
+              <svg class="icon"><use href="#i-lock"/></svg>
+              <span><strong>Compte non autorisé.</strong> Votre adresse ne figure pas dans la liste des membres. Contactez un administrateur de l'équipe partenariats.</span>
+            </div>
+
+            <button type="submit" class="btn btn--accent btn--block" id="login-submit" style="min-height: 44px">
+              <span class="btn__label">Se connecter</span>
+            </button>
+          </form>
+
+          <p class="login__links">Pas de compte ? Les accès sont créés par un administrateur du club.</p>
+
+          <!-- Mode démonstration uniquement (CONFIG.MODE = "mock") -->
+          <div id="demo-box" class="demo-box" hidden>
+            <strong>Mode démonstration</strong> — données fictives enregistrées dans ce navigateur.<br>
+            Comptes membres : <span id="demo-accounts">—</span>, avec n'importe quel mot de passe de 8 caractères.
+            <div><button type="button" class="btn btn--small" id="demo-fill">Remplir avec un compte de démo</button></div>
+          </div>
+        </div>
+
+        <!-- ===== Vue 2 : nouveau mot de passe (après clic sur le lien reçu par e-mail) ===== -->
+        <div id="view-recovery" hidden>
+          <header class="login__brand">
+            <h1>Nouveau mot de passe</h1>
+            <p>Choisissez un mot de passe d'au moins 8 caractères.</p>
+          </header>
+          <form id="recovery-form" class="login__form" novalidate>
+            <div class="field">
+              <label for="recovery-password">Nouveau mot de passe</label>
+              <div class="password">
+                <input id="recovery-password" name="password" type="password" minlength="8" autocomplete="new-password" required>
+                <button type="button" class="btn btn--ghost btn--icon btn--small password__toggle" data-toggle-password="recovery-password" aria-label="Afficher le mot de passe">
+                  <svg class="icon icon--sm"><use href="#i-eye"/></svg>
+                </button>
+              </div>
+            </div>
+            <div class="field">
+              <label for="recovery-confirm">Confirmer</label>
+              <input id="recovery-confirm" name="confirm" type="password" minlength="8" autocomplete="new-password" required>
+            </div>
+            <p id="recovery-error" class="alert alert--danger" role="alert" hidden></p>
+            <button type="submit" class="btn btn--accent btn--block" style="min-height: 44px">Enregistrer et me connecter</button>
+          </form>
+        </div>
+
+        <p class="login__legal">Données de contacts professionnels traitées pour la gestion de la relation avec les partenaires du club (intérêt légitime). Hébergement en Europe.</p>
+      </section>
+    </main>
+  </div>
+
+  <script type="module" src="front-end/js/login.js"></script>
+</body>
+</html>

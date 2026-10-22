@@ -1,0 +1,160 @@
+/* ==========================================================================
+   variables.css — CHARTE GRAPHIQUE (jetons de design)
+   --------------------------------------------------------------------------
+   C'est LE fichier à modifier pour changer l'apparence du site.
+   Aucune autre feuille de style ne contient de couleur « en dur ».
+   Thème : clair par défaut, sombre selon le système OU forcé par le bouton
+   « Thème » (attribut data-theme posé sur <html> par theme-init.js).
+   ========================================================================== */
+
+:root {
+  color-scheme: light;
+
+  /* ---------- Marque ---------- */
+  --color-brand: #13294b;          /* bleu nuit : barre latérale, titres */
+  --color-brand-2: #1d3b6a;        /* bleu nuit clair : dégradés */
+  --color-brand-contrast: #ffffff;
+  --color-accent: #e8761e;         /* orange : actions principales */
+  --color-accent-hover: #d0640f;
+  --color-accent-soft: #fdeedf;
+  --color-accent-contrast: #ffffff;
+
+  /* ---------- Surfaces et texte ---------- */
+  --color-bg: #f3f4f7;
+  --color-surface: #ffffff;
+  --color-surface-alt: #f6f7fa;
+  --color-surface-sunken: #eceef3;
+  --color-border: #e1e4eb;
+  --color-border-strong: #c9ced9;
+  --color-text: #171d2b;
+  --color-text-muted: #5d6779;
+  --color-text-faint: #8a93a4;
+  --color-overlay: rgba(12, 18, 32, 0.5);
+
+  /* ---------- Barre latérale ---------- */
+  --sidebar-bg: #13294b;
+  --sidebar-text: #c3cee2;
+  --sidebar-text-strong: #ffffff;
+  --sidebar-hover: rgba(255, 255, 255, 0.07);
+  --sidebar-active: rgba(255, 255, 255, 0.12);
+  --sidebar-border: rgba(255, 255, 255, 0.1);
+
+  /* ---------- Statuts (règles §5) ---------- */
+  --color-success: #17804a;
+  --color-success-bg: #e3f4ea;
+  --color-warning: #b86a00;
+  --color-warning-bg: #fff2dc;
+  --color-danger: #c42b2b;
+  --color-danger-bg: #fde8e8;
+  --color-info: #2260c4;
+  --color-info-bg: #e4edfc;
+
+  /* ---------- Étapes du pipeline (8) ---------- */
+  --stage-prospect: #7b8699;
+  --stage-contacte: #5577b0;
+  --stage-rdv: #2f8ac0;
+  --stage-proposition: #8358c6;
+  --stage-negociation: #e8761e;
+  --stage-signe: #17804a;
+  --stage-perdu: #c42b2b;
+  --stage-archive: #9aa1ad;
+
+  /* ---------- Typographie ---------- */
+  --font-sans: "Inter", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-md: 0.9375rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.5rem;
+  --text-xxl: 2rem;
+  --line-height: 1.5;
+
+  /* ---------- Espacements (échelle de 4 px) ---------- */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+
+  /* ---------- Formes et ombres ---------- */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-full: 999px;
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
+  --shadow-md: 0 4px 16px rgba(16, 24, 40, 0.08), 0 1px 3px rgba(16, 24, 40, 0.06);
+  --shadow-lg: 0 20px 50px rgba(16, 24, 40, 0.22);
+
+  /* ---------- Dimensions ---------- */
+  --sidebar-width: 244px;
+  --topbar-height: 60px;
+  --bottomnav-height: 64px;
+  --drawer-width: 560px;
+  --content-max: 1320px;
+  --focus-ring: 0 0 0 3px rgba(232, 118, 30, 0.35);
+}
+
+/* ---------- Thème sombre : jetons partagés ---------- */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --color-brand: #9cb8ec;
+    --color-brand-2: #6f93d8;
+    --color-brand-contrast: #0c1424;
+    --color-accent: #f08a3a;
+    --color-accent-hover: #f59d55;
+    --color-accent-soft: #3a2614;
+    --color-accent-contrast: #1a0f05;
+    --color-bg: #0d1320;
+    --color-surface: #151d2e;
+    --color-surface-alt: #1a2335;
+    --color-surface-sunken: #111827;
+    --color-border: #263149;
+    --color-border-strong: #34415e;
+    --color-text: #e7ebf3;
+    --color-text-muted: #9ba6bc;
+    --color-text-faint: #6f7a91;
+    --color-overlay: rgba(0, 0, 0, 0.6);
+    --sidebar-bg: #0a1020;
+    --sidebar-border: rgba(255, 255, 255, 0.06);
+    --color-success: #4cc380; --color-success-bg: #14301f;
+    --color-warning: #f0a53a; --color-warning-bg: #35280f;
+    --color-danger: #f07272;  --color-danger-bg: #3a1a1c;
+    --color-info: #74a3f2;    --color-info-bg: #172742;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.45);
+    --shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.7);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-brand: #9cb8ec;
+  --color-brand-2: #6f93d8;
+  --color-brand-contrast: #0c1424;
+  --color-accent: #f08a3a;
+  --color-accent-hover: #f59d55;
+  --color-accent-soft: #3a2614;
+  --color-accent-contrast: #1a0f05;
+  --color-bg: #0d1320;
+  --color-surface: #151d2e;
+  --color-surface-alt: #1a2335;
+  --color-surface-sunken: #111827;
+  --color-border: #263149;
+  --color-border-strong: #34415e;
+  --color-text: #e7ebf3;
+  --color-text-muted: #9ba6bc;
+  --color-text-faint: #6f7a91;
+  --color-overlay: rgba(0, 0, 0, 0.6);
+  --sidebar-bg: #0a1020;
+  --sidebar-border: rgba(255, 255, 255, 0.06);
+  --color-success: #4cc380; --color-success-bg: #14301f;
+  --color-warning: #f0a53a; --color-warning-bg: #35280f;
+  --color-danger: #f07272;  --color-danger-bg: #3a1a1c;
+  --color-info: #74a3f2;    --color-info-bg: #172742;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.7);
+}

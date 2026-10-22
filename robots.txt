@@ -1,0 +1,3 @@
+# robots.txt — interdiction d'indexation pour tous les robots d'exploration (§6 du PDF)
+User-agent: *
+Disallow: /
