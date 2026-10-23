@@ -72,34 +72,47 @@ async function lireInvitation(jeton: unknown): Promise<Etat> {
 }
 
 // ---------- E-mail ----------
-async function envoyerEmail(destinataire: string, lien: string, invitePar: string, expireLe: Date) {
-  const date = new Intl.DateTimeFormat("fr-FR", { dateStyle: "long", timeStyle: "short", timeZone: "Europe/Paris" }).format(expireLe);
-  const qui = echapper(invitePar);
-  const html = `<!doctype html><html lang="fr"><body style="margin:0;background:#f4f5f7;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#1d2433">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:32px 16px">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#fff;border-radius:12px;padding:32px">
-      <tr><td>
-        <p style="margin:0 0 20px;font-weight:700;font-size:15px">MBC Partenaires</p>
-        <h1 style="margin:0 0 12px;font-size:22px">Vous êtes invité(e) à rejoindre l'équipe partenariats</h1>
-        <p style="margin:0 0 24px;line-height:1.5">${qui} vous invite à créer votre compte sur l'outil de suivi des partenaires du club.</p>
-        <p style="margin:0 0 24px"><a href="${lien}" style="display:inline-block;background:#e4572e;color:#fff;text-decoration:none;font-weight:700;padding:12px 22px;border-radius:8px">Créer mon compte</a></p>
-        <p style="margin:0 0 8px;font-size:13px;color:#5b6475">Ce lien est personnel et valable jusqu'au ${date}.</p>
-        <p style="margin:0;font-size:13px;color:#5b6475;word-break:break-all">Si le bouton ne fonctionne pas, copiez cette adresse : ${lien}</p>
-        <hr style="border:0;border-top:1px solid #e6e8ec;margin:24px 0">
-        <p style="margin:0;font-size:12px;color:#8a92a3">Vous n'attendiez pas cette invitation ? Ignorez simplement cet e-mail.</p>
-      </td></tr>
-    </table>
-  </td></tr></table></body></html>`;
-  const text = `${invitePar} vous invite à rejoindre l'équipe partenariats sur MBC Partenaires.\n\nCréez votre compte : ${lien}\n\nLien personnel, valable jusqu'au ${date}.\nVous n'attendiez pas cette invitation ? Ignorez cet e-mail.`;
+// Message volontairement simple et personnel (texte court, lien classique, pas de gros bouton) :
+// c'est ce qui limite le plus le classement en spam pour un envoi depuis une adresse Gmail.
+async function envoyerEmail(destinataire: string, lien: string, invitePar: { nom: string; email: string }, expireLe: Date) {
+  const jours = Math.max(1, Math.round((expireLe.getTime() - Date.now()) / 86400_000));
+  const nomComplet = invitePar.nom || invitePar.email;
+  const prenom = nomComplet.split(" ")[0];
+  const sujet = `${prenom} vous invite sur MBC Partenaires`;
 
-  const sujet = "Invitation à rejoindre MBC Partenaires";
+  const text = `Bonjour,
+
+${nomComplet} vous a ajouté(e) à l'outil de suivi des partenaires du club (MBC Partenaires), utilisé par l'équipe pour suivre les partenaires, les contrats et les événements.
+
+Pour créer votre compte, ouvrez ce lien :
+${lien}
+
+Vous choisirez simplement votre nom et votre mot de passe. Le lien est personnel et reste valable ${jours} jours.
+
+Une question ? Répondez directement à cet e-mail, ${prenom} recevra votre message.
+
+À bientôt,
+${nomComplet}
+MBC Partenaires`;
+
+  const p = (t: string) => `<p style="margin:0 0 14px">${t}</p>`;
+  const html = `<!doctype html><html lang="fr"><body style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#222">
+${p("Bonjour,")}
+${p(`${echapper(nomComplet)} vous a ajouté(e) à l'outil de suivi des partenaires du club (MBC Partenaires), utilisé par l'équipe pour suivre les partenaires, les contrats et les événements.`)}
+${p(`Pour créer votre compte, ouvrez ce lien :<br><a href="${lien}">${lien}</a>`)}
+${p(`Vous choisirez simplement votre nom et votre mot de passe. Le lien est personnel et reste valable ${jours} jours.`)}
+${p(`Une question ? Répondez directement à cet e-mail, ${echapper(prenom)} recevra votre message.`)}
+${p(`À bientôt,<br>${echapper(nomComplet)}<br>MBC Partenaires`)}
+</body></html>`;
+  const expediteur = SMTP_USER ? `"${nomComplet.replace(/"/g, "")} (MBC Partenaires)" <${SMTP_USER}>` : MAIL_FROM;
+  const repondreA = invitePar.email;
 
   if (SMTP_USER) { // ----- SMTP (Gmail) -----
     const transport = nodemailer.createTransport({
       host: SMTP_HOST, port: SMTP_PORT, secure: SMTP_PORT === 465,
       auth: { user: SMTP_USER, pass: SMTP_PASS },
     });
-    await transport.sendMail({ from: MAIL_FROM, to: destinataire, subject: sujet, html, text });
+    await transport.sendMail({ from: Deno.env.get("INVITE_FROM_EMAIL") ?? expediteur, replyTo: repondreA, to: destinataire, subject: sujet, html, text });
     return;
   }
 
@@ -108,7 +121,7 @@ async function envoyerEmail(destinataire: string, lien: string, invitePar: strin
   const r = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from: MAIL_FROM, to: [destinataire], subject: sujet, html, text }),
+    body: JSON.stringify({ from: MAIL_FROM, reply_to: repondreA, to: [destinataire], subject: sujet, html, text }),
   });
   if (!r.ok) throw new Error(`Resend ${r.status} : ${await r.text()}`);
 }
@@ -148,7 +161,7 @@ async function envoyer(req: Request, corps: Record<string, unknown>) {
   // 5) E-mail ; en cas d'échec, l'invitation est supprimée pour ne pas laisser de jeton orphelin
   const lien = `${SITE_URL}/register?token=${encodeURIComponent(jeton)}`;
   try {
-    await envoyerEmail(email, lien, membre.nom || moi, expireLe);
+    await envoyerEmail(email, lien, { nom: membre.nom || "", email: moi }, expireLe);
   } catch (e) {
     console.error(e);
     await admin.from("invitations").delete().eq("id", inv.id);
