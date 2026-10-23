@@ -14,6 +14,7 @@ import { aujourdhui } from "./dates.js";
 import { showToast, escapeHtml, stageSlug, formatEuro, montantAffiche } from "./utils.js";
 import { injecterIcones } from "./icons.js";
 import { initModales } from "./modal.js";
+import { initInvitations } from "./invitations.js";
 
 injecterIcones();
 
@@ -26,6 +27,7 @@ try {
 
   initModales();
   initEnTete({ onExport: exporter });
+  initInvitations();
   initDashboard(); initPipeline(); initPartenaires(); initPaiements(); initEvenements(); initFiche();
   initActionsRapides();
   initRechercheGlobale();

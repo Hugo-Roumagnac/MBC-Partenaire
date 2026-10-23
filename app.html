@@ -424,6 +424,7 @@
   <!-- ===== Menu du compte (§4.1 : mot de passe, déconnexion) ===== -->
   <div id="user-menu" class="menu" role="menu" hidden>
     <div class="menu__head"><strong data-bind="nom">—</strong><br><span class="muted" style="font-size: var(--text-xs)" data-bind="email">—</span></div>
+    <button type="button" class="menu__item" role="menuitem" id="btn-invite"><svg class="icon icon--sm"><use href="#i-userPlus"/></svg>Inviter un membre</button>
     <button type="button" class="menu__item" role="menuitem" id="btn-password"><svg class="icon icon--sm"><use href="#i-key"/></svg>Changer le mot de passe</button>
     <div class="menu__item" role="group" aria-label="Thème" style="cursor:default">
       <svg class="icon icon--sm"><use href="#i-moon"/></svg>Thème
@@ -692,6 +693,46 @@
           <button type="submit" class="btn btn--accent">Enregistrer</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- ===== Inviter un membre : e-mail avec lien d'inscription à usage unique ===== -->
+  <div id="modal-invite" class="modal" hidden>
+    <div class="modal__backdrop" data-close-modal></div>
+    <div class="modal__panel card" role="dialog" aria-modal="true" aria-labelledby="h-invite">
+      <div class="modal__head">
+        <h2 id="h-invite">Inviter un membre</h2>
+        <button type="button" class="btn btn--ghost btn--icon" data-close-modal aria-label="Fermer"><svg class="icon"><use href="#i-x"/></svg></button>
+      </div>
+      <form id="form-invite" class="invite-form" novalidate>
+        <div class="field">
+          <label for="invite-email">Adresse e-mail du futur membre</label>
+          <div class="invite-form__row">
+            <input id="invite-email" name="email" type="email" inputmode="email" autocomplete="off" placeholder="prenom@club.fr" required aria-describedby="invite-hint">
+            <button type="submit" class="btn btn--accent" id="invite-submit"><svg class="icon icon--sm"><use href="#i-send"/></svg>Envoyer l'invitation</button>
+          </div>
+          <span class="field__hint" id="invite-hint">Un lien personnel, valable 7 jours, lui permettra de créer son compte.</span>
+        </div>
+        <p id="invite-error" class="alert alert--danger" role="alert" hidden></p>
+        <div id="invite-success" class="alert alert--success" role="status" hidden></div>
+        <!-- Mode démonstration : aucun e-mail n'est envoyé, le lien est affiché ici -->
+        <div id="invite-demo" class="invite-demo" hidden>
+          <span class="invite-demo__label">Mode démonstration — aucun e-mail envoyé. Lien d'inscription :</span>
+          <div class="invite-demo__row">
+            <input id="invite-demo-link" type="text" readonly aria-label="Lien d'inscription">
+            <button type="button" class="btn btn--small" id="invite-copy"><svg class="icon icon--sm"><use href="#i-copy"/></svg>Copier</button>
+            <a class="btn btn--small btn--ghost" id="invite-open" target="_blank" rel="noopener">Ouvrir</a>
+          </div>
+        </div>
+      </form>
+
+      <h3 class="invite-list__title">Invitations envoyées</h3>
+      <div class="table-wrap">
+        <table class="table table--compact">
+          <thead><tr><th scope="col">E-mail</th><th scope="col">Statut</th><th scope="col">Échéance</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+          <tbody id="invite-list"><tr><td colspan="4" class="empty-cell">Chargement…</td></tr></tbody>
+        </table>
+      </div>
     </div>
   </div>
 

@@ -1,4 +1,4 @@
-// login.js — page d'accueil = connexion (§4.1). Aucune inscription possible (§6).
+// login.js — page d'accueil = connexion (§4.1). Pas d'inscription libre (§6) : uniquement sur invitation (register.html).
 import * as api from "./api.js";
 import { CONFIG } from "./config.js";
 import { injecterIcones } from "./icons.js";
@@ -123,6 +123,7 @@ async function preparerSupabase() {
 const raison = new URLSearchParams(location.search).get("raison");
 if (raison === "deconnexion") info("Vous êtes déconnecté.");
 if (raison === "non-autorise") nonAutorise();
+if (raison === "compte-cree") info("Votre compte est créé. Connectez-vous avec votre adresse e-mail et votre mot de passe.");
 
 if (CONFIG.MODE === "supabase") preparerSupabase().catch((e) => { console.error(e); erreur("Service de connexion indisponible."); });
 else preparerDemo().catch((e) => console.error(e));

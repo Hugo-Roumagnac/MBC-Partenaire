@@ -275,3 +275,7 @@ body.is-ready .boot { display: none; }
   .kpi__icon { display: none; }
   .score__signed { font-size: 2rem; }
 }
+
+/* Page d'inscription sur invitation */
+.register__checking { display: flex; align-items: center; justify-content: center; gap: 10px; padding: var(--space-6) 0; color: var(--color-text-muted); font-size: var(--text-sm); }
+.register__checking .spinner { width: 18px; height: 18px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin 700ms linear infinite; }
