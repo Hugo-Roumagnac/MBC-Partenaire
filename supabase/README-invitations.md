@@ -52,7 +52,7 @@ Une seule invitation `pending` par adresse (index unique partiel). Les membres c
 Supabase → **SQL Editor** → coller le contenu de `supabase/migrations/20261023120000_invitations.sql` → **Run**.
 (Le script peut être relancé sans risque.)
 
-> Prérequis : `supabase/schema.sql` doit avoir été exécuté avant (table `membres`, fonction `est_membre()`).
+> Hypothèse : votre table `membres` a la forme `membres(email text primary key, nom text)`, comme dans le code actuel. Si elle a d'autres colonnes obligatoires, ajoutez-les dans l'`upsert` de l'action `accept` (`index.ts`).
 
 ### 2. Créer un compte d'envoi d'e-mails (Resend)
 

@@ -8,13 +8,19 @@
 // Le mot de passe est confié à Supabase Auth, qui le stocke haché avec bcrypt.
 // Déploiement : voir supabase/README-invitations.md
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
+import nodemailer from "npm:nodemailer@6.9.16"; // envoi SMTP (Gmail…)
 
 // ---------- Configuration (variables d'environnement / secrets) ----------
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;                       // fourni automatiquement
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;      // fourni automatiquement
 const SITE_URL = (Deno.env.get("SITE_URL") ?? "").replace(/\/$/, "");     // ex. https://mbc-partenaires.netlify.app
+// Envoi des e-mails : SMTP (ex. Gmail) si SMTP_USER est défini, sinon Resend.
+const SMTP_HOST = Deno.env.get("SMTP_HOST") ?? "smtp.gmail.com";
+const SMTP_PORT = Number(Deno.env.get("SMTP_PORT") ?? "465");          // 465 (SSL) : Supabase bloque 25 et 587
+const SMTP_USER = Deno.env.get("SMTP_USER") ?? "";                    // ex. mbc.partenaires@gmail.com
+const SMTP_PASS = (Deno.env.get("SMTP_PASS") ?? "").replace(/\s+/g, ""); // mot de passe d'application Google (16 lettres)
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") ?? "";
-const MAIL_FROM = Deno.env.get("INVITE_FROM_EMAIL") ?? "MBC Partenaires <onboarding@resend.dev>";
+const MAIL_FROM = Deno.env.get("INVITE_FROM_EMAIL") ?? (SMTP_USER ? `MBC Partenaires <${SMTP_USER}>` : "MBC Partenaires <onboarding@resend.dev>");
 const TTL_HEURES = Number(Deno.env.get("INVITATION_TTL_HOURS") ?? "168"); // 7 jours par défaut
 const MAX_PAR_HEURE = Number(Deno.env.get("INVITATION_MAX_PER_HOUR") ?? "20");
 const ALLOWED_ORIGIN = Deno.env.get("ALLOWED_ORIGIN") ?? (SITE_URL || "*");
@@ -86,10 +92,23 @@ async function envoyerEmail(destinataire: string, lien: string, invitePar: strin
   </td></tr></table></body></html>`;
   const text = `${invitePar} vous invite à rejoindre l'équipe partenariats sur MBC Partenaires.\n\nCréez votre compte : ${lien}\n\nLien personnel, valable jusqu'au ${date}.\nVous n'attendiez pas cette invitation ? Ignorez cet e-mail.`;
 
+  const sujet = "Invitation à rejoindre MBC Partenaires";
+
+  if (SMTP_USER) { // ----- SMTP (Gmail) -----
+    const transport = nodemailer.createTransport({
+      host: SMTP_HOST, port: SMTP_PORT, secure: SMTP_PORT === 465,
+      auth: { user: SMTP_USER, pass: SMTP_PASS },
+    });
+    await transport.sendMail({ from: MAIL_FROM, to: destinataire, subject: sujet, html, text });
+    return;
+  }
+
+  // ----- Resend -----
+  if (!RESEND_API_KEY) throw new Error("Aucun service d'e-mail configuré (SMTP_USER ou RESEND_API_KEY).");
   const r = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from: MAIL_FROM, to: [destinataire], subject: "Invitation à rejoindre MBC Partenaires", html, text }),
+    body: JSON.stringify({ from: MAIL_FROM, to: [destinataire], subject: sujet, html, text }),
   });
   if (!r.ok) throw new Error(`Resend ${r.status} : ${await r.text()}`);
 }
