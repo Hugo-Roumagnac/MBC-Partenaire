@@ -72,8 +72,8 @@ async function lireInvitation(jeton: unknown): Promise<Etat> {
 }
 
 // ---------- E-mail ----------
-// Message volontairement simple et personnel (texte court, lien classique, pas de gros bouton) :
-// c'est ce qui limite le plus le classement en spam pour un envoi depuis une adresse Gmail.
+// Message volontairement simple et personnel (texte court, un seul bouton, lien de secours) :
+// cela limite le classement en spam pour un envoi depuis une adresse Gmail.
 async function envoyerEmail(destinataire: string, lien: string, invitePar: { nom: string; email: string }, expireLe: Date) {
   const jours = Math.max(1, Math.round((expireLe.getTime() - Date.now()) / 86400_000));
   const nomComplet = invitePar.nom || invitePar.email;
@@ -99,9 +99,11 @@ MBC Partenaires`;
   const html = `<!doctype html><html lang="fr"><body style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#222">
 ${p("Bonjour,")}
 ${p(`${echapper(nomComplet)} vous a ajouté(e) à l'outil de suivi des partenaires du club (MBC Partenaires), utilisé par l'équipe pour suivre les partenaires, les contrats et les événements.`)}
-${p(`Pour créer votre compte, ouvrez ce lien :<br><a href="${lien}">${lien}</a>`)}
+${p("Pour créer votre compte, cliquez sur le bouton ci-dessous :")}
+<p style="margin:0 0 18px"><a href="${lien}" style="display:inline-block;background:#e4572e;color:#ffffff;text-decoration:none;font-weight:bold;padding:12px 22px;border-radius:6px">Créer mon compte</a></p>
 ${p(`Vous choisirez simplement votre nom et votre mot de passe. Le lien est personnel et reste valable ${jours} jours.`)}
 ${p(`Une question ? Répondez directement à cet e-mail, ${echapper(prenom)} recevra votre message.`)}
+<p style="margin:0 0 14px;font-size:13px;color:#666">Si le bouton ne fonctionne pas, copiez ce lien dans votre navigateur :<br><a href="${lien}" style="color:#666;word-break:break-all">${lien}</a></p>
 ${p(`À bientôt,<br>${echapper(nomComplet)}<br>MBC Partenaires`)}
 </body></html>`;
   const expediteur = SMTP_USER ? `"${nomComplet.replace(/"/g, "")} (MBC Partenaires)" <${SMTP_USER}>` : MAIL_FROM;
