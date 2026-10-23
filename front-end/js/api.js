@@ -124,10 +124,10 @@ function ecrireLocal(table, type, ligne) {
 
 const COLONNES_INVITATION = "id, email, statut, invite_par, expire_le, cree_le, accepte_le"; // jamais token_hash
 
-async function appelerFonction(corps) { // POST vers /functions/v1/invitations ; renvoie toujours { ok, ... }
+async function appelerFonction(corps) { // POST vers /functions/v1/super-worker ; renvoie toujours { ok, ... }
   const c = await init();
   const { data: { session } } = await c.auth.getSession();
-  const r = await fetch(`${CONFIG.SUPABASE_URL}/functions/v1/invitations`, {
+  const r = await fetch(`${CONFIG.SUPABASE_URL}/functions/v1/super-worker`, {
     method: "POST",
     headers: { "Content-Type": "application/json", apikey: CONFIG.SUPABASE_ANON_KEY, Authorization: `Bearer ${session?.access_token || CONFIG.SUPABASE_ANON_KEY}` },
     body: JSON.stringify(corps)
