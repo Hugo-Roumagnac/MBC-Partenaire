@@ -1,0 +1,207 @@
+// supabase/functions/invitations/index.ts — Edge Function (Deno) des invitations par e-mail.
+//
+// Une seule fonction, trois actions (corps JSON { action, ... }) :
+//   • "send"   — un MEMBRE connecté invite une adresse e-mail      (jeton d'accès Supabase requis)
+//   • "check"  — la page d'inscription vérifie un jeton             (public)
+//   • "accept" — la page d'inscription crée le compte               (public, protégé par le jeton)
+//
+// Le mot de passe est confié à Supabase Auth, qui le stocke haché avec bcrypt.
+// Déploiement : voir supabase/README-invitations.md
+import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
+
+// ---------- Configuration (variables d'environnement / secrets) ----------
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;                       // fourni automatiquement
+const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;      // fourni automatiquement
+const SITE_URL = (Deno.env.get("SITE_URL") ?? "").replace(/\/$/, "");     // ex. https://mbc-partenaires.netlify.app
+const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") ?? "";
+const MAIL_FROM = Deno.env.get("INVITE_FROM_EMAIL") ?? "MBC Partenaires <onboarding@resend.dev>";
+const TTL_HEURES = Number(Deno.env.get("INVITATION_TTL_HOURS") ?? "168"); // 7 jours par défaut
+const MAX_PAR_HEURE = Number(Deno.env.get("INVITATION_MAX_PER_HOUR") ?? "20");
+const ALLOWED_ORIGIN = Deno.env.get("ALLOWED_ORIGIN") ?? (SITE_URL || "*");
+
+const admin: SupabaseClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+  auth: { persistSession: false, autoRefreshToken: false },
+});
+
+// ---------- Utilitaires ----------
+const CORS = {
+  "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Vary": "Origin",
+};
+const json = (corps: unknown, status = 200) =>
+  new Response(JSON.stringify(corps), { status, headers: { ...CORS, "Content-Type": "application/json" } });
+const echec = (code: string, message: string, status = 400) => json({ ok: false, code, message }, status);
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const normEmail = (e: unknown) => String(e ?? "").trim().toLowerCase();
+const echapper = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
+
+function genererJeton(): string { // 256 bits aléatoires, encodés en base64url (43 caractères)
+  const octets = crypto.getRandomValues(new Uint8Array(32));
+  return btoa(String.fromCharCode(...octets)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+async function empreinte(jeton: string): Promise<string> { // SHA-256 hex : seule forme stockée en base
+  const h = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(jeton));
+  return [...new Uint8Array(h)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+const jetonPlausible = (t: unknown) => typeof t === "string" && /^[A-Za-z0-9_-]{32,128}$/.test(t);
+
+// ---------- Lecture d'une invitation à partir du jeton ----------
+type Etat = { ok: true; id: string; email: string; expireLe: string } | { ok: false; code: string; message: string };
+async function lireInvitation(jeton: unknown): Promise<Etat> {
+  const invalide = { ok: false as const, code: "invalide", message: "Ce lien d'invitation n'est pas valide." };
+  if (!jetonPlausible(jeton)) return invalide;
+  const { data: inv } = await admin.from("invitations").select("id, email, statut, expire_le")
+    .eq("token_hash", await empreinte(jeton as string)).maybeSingle();
+  if (!inv) return invalide;
+  if (inv.statut === "accepted") return { ok: false, code: "utilisee", message: "Cette invitation a déjà été utilisée. Connectez-vous avec votre compte." };
+  if (inv.statut === "revoked") return { ok: false, code: "revoquee", message: "Cette invitation a été remplacée par une plus récente. Utilisez le dernier e-mail reçu." };
+  if (inv.statut === "expired" || new Date(inv.expire_le) <= new Date()) {
+    if (inv.statut === "pending") await admin.from("invitations").update({ statut: "expired" }).eq("id", inv.id);
+    return { ok: false, code: "expiree", message: "Cette invitation a expiré. Demandez à un membre de l'équipe de vous en renvoyer une." };
+  }
+  return { ok: true, id: inv.id, email: inv.email, expireLe: inv.expire_le };
+}
+
+// ---------- E-mail ----------
+async function envoyerEmail(destinataire: string, lien: string, invitePar: string, expireLe: Date) {
+  const date = new Intl.DateTimeFormat("fr-FR", { dateStyle: "long", timeStyle: "short", timeZone: "Europe/Paris" }).format(expireLe);
+  const qui = echapper(invitePar);
+  const html = `<!doctype html><html lang="fr"><body style="margin:0;background:#f4f5f7;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#1d2433">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:32px 16px">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#fff;border-radius:12px;padding:32px">
+      <tr><td>
+        <p style="margin:0 0 20px;font-weight:700;font-size:15px">MBC Partenaires</p>
+        <h1 style="margin:0 0 12px;font-size:22px">Vous êtes invité(e) à rejoindre l'équipe partenariats</h1>
+        <p style="margin:0 0 24px;line-height:1.5">${qui} vous invite à créer votre compte sur l'outil de suivi des partenaires du club.</p>
+        <p style="margin:0 0 24px"><a href="${lien}" style="display:inline-block;background:#e4572e;color:#fff;text-decoration:none;font-weight:700;padding:12px 22px;border-radius:8px">Créer mon compte</a></p>
+        <p style="margin:0 0 8px;font-size:13px;color:#5b6475">Ce lien est personnel et valable jusqu'au ${date}.</p>
+        <p style="margin:0;font-size:13px;color:#5b6475;word-break:break-all">Si le bouton ne fonctionne pas, copiez cette adresse : ${lien}</p>
+        <hr style="border:0;border-top:1px solid #e6e8ec;margin:24px 0">
+        <p style="margin:0;font-size:12px;color:#8a92a3">Vous n'attendiez pas cette invitation ? Ignorez simplement cet e-mail.</p>
+      </td></tr>
+    </table>
+  </td></tr></table></body></html>`;
+  const text = `${invitePar} vous invite à rejoindre l'équipe partenariats sur MBC Partenaires.\n\nCréez votre compte : ${lien}\n\nLien personnel, valable jusqu'au ${date}.\nVous n'attendiez pas cette invitation ? Ignorez cet e-mail.`;
+
+  const r = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ from: MAIL_FROM, to: [destinataire], subject: "Invitation à rejoindre MBC Partenaires", html, text }),
+  });
+  if (!r.ok) throw new Error(`Resend ${r.status} : ${await r.text()}`);
+}
+
+// ---------- Action « send » ----------
+async function envoyer(req: Request, corps: Record<string, unknown>) {
+  // 1) Appelant authentifié ET membre
+  const jwt = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
+  const { data: { user } } = await admin.auth.getUser(jwt);
+  if (!user?.email) return echec("non-connecte", "Session expirée : reconnectez-vous.", 401);
+  const moi = user.email.toLowerCase();
+  const { data: membre } = await admin.from("membres").select("email, nom").eq("email", moi).maybeSingle();
+  if (!membre) return echec("non-autorise", "Seuls les membres de l'équipe peuvent inviter.", 403);
+
+  // 2) Adresse valide et libre
+  const email = normEmail(corps.email);
+  if (!EMAIL_RE.test(email) || email.length > 254) return echec("email-invalide", "Adresse e-mail invalide.");
+  const { data: dejaInscrit, error: eRpc } = await admin.rpc("email_deja_inscrit", { p_email: email });
+  if (eRpc) throw eRpc;
+  if (dejaInscrit) return echec("deja-inscrit", "Cette adresse est déjà associée à un compte.", 409);
+
+  // 3) Limite anti-abus : N invitations par membre et par heure
+  const { count } = await admin.from("invitations").select("id", { count: "exact", head: true })
+    .eq("invite_par", moi).gte("cree_le", new Date(Date.now() - 3600_000).toISOString());
+  if ((count ?? 0) >= MAX_PAR_HEURE) return echec("trop-de-demandes", "Trop d'invitations envoyées. Réessayez dans une heure.", 429);
+
+  // 4) Nouvelle invitation (l'éventuelle invitation en attente pour cette adresse est révoquée)
+  await admin.rpc("expirer_invitations");
+  await admin.from("invitations").update({ statut: "revoked" }).eq("email", email).eq("statut", "pending");
+  const jeton = genererJeton();
+  const expireLe = new Date(Date.now() + TTL_HEURES * 3600_000);
+  const { data: inv, error: eIns } = await admin.from("invitations")
+    .insert({ email, token_hash: await empreinte(jeton), invite_par: moi, expire_le: expireLe.toISOString() })
+    .select("id, email, statut, invite_par, expire_le, cree_le").single();
+  if (eIns) throw eIns;
+
+  // 5) E-mail ; en cas d'échec, l'invitation est supprimée pour ne pas laisser de jeton orphelin
+  const lien = `${SITE_URL}/register?token=${encodeURIComponent(jeton)}`;
+  try {
+    await envoyerEmail(email, lien, membre.nom || moi, expireLe);
+  } catch (e) {
+    console.error(e);
+    await admin.from("invitations").delete().eq("id", inv.id);
+    return echec("envoi-impossible", "L'e-mail n'a pas pu être envoyé. Vérifiez l'adresse ou réessayez plus tard.", 502);
+  }
+  return json({ ok: true, invitation: inv });
+}
+
+// ---------- Action « check » ----------
+async function verifier(corps: Record<string, unknown>) {
+  const etat = await lireInvitation(corps.token);
+  if (!etat.ok) return json(etat, 200); // 200 : erreur « métier » affichée telle quelle par la page
+  return json({ ok: true, email: etat.email, expireLe: etat.expireLe });
+}
+
+// ---------- Action « accept » ----------
+async function accepter(corps: Record<string, unknown>) {
+  const prenom = String(corps.prenom ?? "").trim().slice(0, 80);
+  const nom = String(corps.nom ?? "").trim().slice(0, 80);
+  const motDePasse = String(corps.motDePasse ?? "");
+  if (!prenom || !nom) return echec("champs-manquants", "Renseignez votre prénom et votre nom.");
+  if (motDePasse.length < 8 || motDePasse.length > 72) return echec("mot-de-passe", "Le mot de passe doit contenir entre 8 et 72 caractères."); // 72 = limite bcrypt
+
+  const etat = await lireInvitation(corps.token);
+  if (!etat.ok) return json(etat, 200);
+
+  // Réservation atomique du jeton : deux soumissions simultanées ne créent pas deux comptes.
+  const { data: reserve } = await admin.from("invitations")
+    .update({ statut: "accepted", accepte_le: new Date().toISOString() })
+    .eq("id", etat.id).eq("statut", "pending").gt("expire_le", new Date().toISOString())
+    .select("id").maybeSingle();
+  if (!reserve) return json({ ok: false, code: "utilisee", message: "Cette invitation a déjà été utilisée." });
+  const annulerReservation = () => admin.from("invitations").update({ statut: "pending", accepte_le: null }).eq("id", etat.id);
+
+  // Création du compte (mot de passe haché en bcrypt par Supabase Auth ; e-mail déjà prouvé par le lien)
+  const { data: cree, error: eUser } = await admin.auth.admin.createUser({
+    email: etat.email, password: motDePasse, email_confirm: true, user_metadata: { prenom, nom },
+  });
+  if (eUser || !cree.user) {
+    await annulerReservation();
+    const deja = /already|registered|exists/i.test(eUser?.message ?? "");
+    return deja
+      ? echec("deja-inscrit", "Un compte existe déjà pour cette adresse. Connectez-vous.", 409)
+      : echec("creation-impossible", eUser?.message?.includes("assword") ? "Mot de passe refusé : choisissez-en un plus robuste." : "Création du compte impossible.", 400);
+  }
+
+  // Ajout à la liste des membres (donne l'accès à l'application)
+  const { error: eMembre } = await admin.from("membres").upsert({ email: etat.email, nom: `${prenom} ${nom}` }, { onConflict: "email" });
+  if (eMembre) {
+    console.error(eMembre);
+    await admin.auth.admin.deleteUser(cree.user.id);
+    await annulerReservation();
+    return echec("creation-impossible", "Création du compte impossible.", 500);
+  }
+  return json({ ok: true, email: etat.email });
+}
+
+// ---------- Routage ----------
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+  if (req.method !== "POST") return echec("methode", "Méthode non autorisée.", 405);
+  let corps: Record<string, unknown>;
+  try { corps = await req.json(); } catch { return echec("json", "Requête invalide."); }
+  try {
+    switch (corps.action) {
+      case "send": return await envoyer(req, corps);
+      case "check": return await verifier(corps);
+      case "accept": return await accepter(corps);
+      default: return echec("action", "Action inconnue.");
+    }
+  } catch (e) {
+    console.error(e);
+    return echec("erreur-serveur", "Erreur inattendue, réessayez plus tard.", 500);
+  }
+});

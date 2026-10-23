@@ -1,0 +1,6 @@
+# Réglages de la CLI Supabase pour les Edge Functions.
+# La fonction « invitations » est appelée sans session par la page d'inscription :
+# la vérification JWT de la passerelle est donc désactivée, et la fonction
+# vérifie elle-même l'utilisateur pour l'action « send ».
+[functions.invitations]
+verify_jwt = false

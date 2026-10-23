@@ -186,3 +186,20 @@
 .segmented { display: inline-flex; padding: 3px; gap: 2px; border-radius: var(--radius-sm); background: var(--color-surface-sunken); }
 .segmented button { border: 0; background: transparent; padding: 5px 10px; border-radius: 5px; font-size: var(--text-xs); font-weight: 650; color: var(--color-text-muted); cursor: pointer; }
 .segmented button[aria-pressed="true"] { background: var(--color-surface); color: var(--color-text); box-shadow: var(--shadow-sm); }
+
+/* ============================== INVITATIONS ============================== */
+.invite-form { display: grid; gap: var(--space-3); }
+.invite-form__row { display: flex; gap: var(--space-2); }
+.invite-form__row input { flex: 1 1 auto; min-width: 0; }
+.invite-form__row .btn { flex: 0 0 auto; }
+.invite-demo { display: grid; gap: 6px; padding: 10px 12px; border: 1px dashed var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-alt); }
+.invite-demo__label { font-size: var(--text-xs); font-weight: 600; color: var(--color-text-muted); }
+.invite-demo__row { display: flex; gap: 6px; align-items: center; }
+.invite-demo__row input { flex: 1 1 auto; min-width: 0; font-size: var(--text-xs); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.invite-list__title { margin: var(--space-5) 0 var(--space-2); font-size: var(--text-sm); font-weight: 700; color: var(--color-text-muted); }
+.invite-list__email { font-weight: 600; word-break: break-all; }
+input[readonly] { background: var(--color-surface-alt); color: var(--color-text-muted); cursor: default; }
+@media (max-width: 520px) {
+  .invite-form__row { flex-direction: column; }
+  .invite-demo__row { flex-wrap: wrap; }
+}

@@ -1,6 +1,7 @@
 // api.js — UNIQUE point d'accès aux données. Même interface en mode "supabase" et en mode "mock".
 import { CONFIG } from "./config.js"; // mode et identifiants
 import { seedTables } from "./mock-seed.js"; // données de départ du mode mock
+import { genererJeton, empreinte, normaliserEmail, emailValide, jetonPlausible, DUREE_INVITATION_HEURES } from "./invitations-core.js"; // invitations
 
 export const TABLES = ["partenaires", "contrats", "echeances", "contreparties", "contacts", "echanges", "evenements", "presences", "reglages", "membres"]; // toutes les tables lues
 
@@ -115,4 +116,85 @@ function ecrireLocal(table, type, ligne) {
   if (type === "DELETE" && table === "partenaires") ["contrats", "echeances", "contreparties", "contacts", "echanges", "presences"].forEach((t) => ecrireTable(t, lireTable(t).filter((l) => l.partenaireId !== id))); // simule le « on delete cascade »
   try { localStorage.setItem("mbc:evt", JSON.stringify({ t: Date.now(), evt: { table, type, row: finale } })); } catch { /* ignore */ } // diffuse aux autres onglets
   return finale; // renvoie la ligne enregistrée
+}
+
+// ---------- Invitations par e-mail ----------
+// En mode "supabase", tout passe par l'Edge Function « invitations » (clé service_role côté serveur).
+// En mode "mock", les invitations sont simulées dans localStorage et le lien est affiché au lieu d'être envoyé.
+
+const COLONNES_INVITATION = "id, email, statut, invite_par, expire_le, cree_le, accepte_le"; // jamais token_hash
+
+async function appelerFonction(corps) { // POST vers /functions/v1/invitations ; renvoie toujours { ok, ... }
+  const c = await init();
+  const { data: { session } } = await c.auth.getSession();
+  const r = await fetch(`${CONFIG.SUPABASE_URL}/functions/v1/invitations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", apikey: CONFIG.SUPABASE_ANON_KEY, Authorization: `Bearer ${session?.access_token || CONFIG.SUPABASE_ANON_KEY}` },
+    body: JSON.stringify(corps)
+  });
+  let rep; try { rep = await r.json(); } catch { rep = null; }
+  return rep && typeof rep.ok === "boolean" ? rep : { ok: false, code: "erreur-serveur", message: "Service d'invitation indisponible." };
+}
+
+// Envoie (ou renvoie) une invitation. → { ok, invitation, lien? } ou { ok:false, code, message }
+export async function envoyerInvitation(email, invitePar) {
+  email = normaliserEmail(email);
+  if (CONFIG.MODE === "supabase") {
+    const rep = await appelerFonction({ action: "send", email });
+    if (rep.ok) rep.invitation = mapKeys(rep.invitation, toCamel);
+    return rep;
+  }
+  // ----- mock -----
+  if (!emailValide(email)) return { ok: false, code: "email-invalide", message: "Adresse e-mail invalide." };
+  if (lireTable("membres").some((m) => normaliserEmail(m.email) === email)) return { ok: false, code: "deja-inscrit", message: "Cette adresse est déjà associée à un compte." };
+  const invitations = lireTable("invitations").map((i) => (i.email === email && i.statut === "pending" ? { ...i, statut: "revoked" } : i)); // l'ancienne est remplacée
+  const jeton = genererJeton();
+  const invitation = { id: crypto.randomUUID(), email, tokenHash: await empreinte(jeton), statut: "pending", invitePar: normaliserEmail(invitePar), expireLe: new Date(Date.now() + DUREE_INVITATION_HEURES * 3600e3).toISOString(), creeLe: new Date().toISOString(), accepteLe: null };
+  ecrireTable("invitations", [invitation, ...invitations]);
+  const { tokenHash, ...publique } = invitation;
+  return { ok: true, invitation: publique, lien: new URL(`register.html?token=${jeton}`, location.href.replace(/[^/]*$/, "")).href };
+}
+
+// Liste des invitations (les plus récentes d'abord).
+export async function listerInvitations() {
+  if (CONFIG.MODE === "supabase") {
+    const { data, error } = await (await init()).from("invitations").select(COLONNES_INVITATION).order("cree_le", { ascending: false }).limit(50);
+    if (error) throw error;
+    return data.map((l) => mapKeys(l, toCamel));
+  }
+  return lireTable("invitations").map(({ tokenHash, ...i }) => i).sort((a, b) => b.creeLe.localeCompare(a.creeLe));
+}
+
+// Vérifie un jeton (page d'inscription). → { ok:true, email } ou { ok:false, code, message }
+export async function verifierInvitation(jeton) {
+  if (CONFIG.MODE === "supabase") return appelerFonction({ action: "check", token: jeton });
+  const inv = await trouverInvitationLocale(jeton);
+  return inv.ok ? { ok: true, email: inv.invitation.email, expireLe: inv.invitation.expireLe } : inv;
+}
+
+// Crée le compte à partir d'une invitation valide. → { ok:true, email } ou { ok:false, code, message }
+export async function accepterInvitation({ token, prenom, nom, motDePasse }) {
+  if (CONFIG.MODE === "supabase") return appelerFonction({ action: "accept", token, prenom, nom, motDePasse });
+  const inv = await trouverInvitationLocale(token);
+  if (!inv.ok) return inv;
+  const { email, id } = inv.invitation;
+  if (lireTable("membres").some((m) => normaliserEmail(m.email) === email)) return { ok: false, code: "deja-inscrit", message: "Un compte existe déjà pour cette adresse. Connectez-vous." };
+  ecrireLocal("membres", "INSERT", { email, nom: `${prenom.trim()} ${nom.trim()}` }); // mode démo : pas de mot de passe stocké
+  ecrireTable("invitations", lireTable("invitations").map((i) => (i.id === id ? { ...i, statut: "accepted", accepteLe: new Date().toISOString() } : i)));
+  return { ok: true, email };
+}
+
+async function trouverInvitationLocale(jeton) {
+  const invalide = { ok: false, code: "invalide", message: "Ce lien d'invitation n'est pas valide." };
+  if (!jetonPlausible(jeton)) return invalide;
+  const h = await empreinte(jeton);
+  const inv = lireTable("invitations").find((i) => i.tokenHash === h);
+  if (!inv) return invalide;
+  if (inv.statut === "accepted") return { ok: false, code: "utilisee", message: "Cette invitation a déjà été utilisée." };
+  if (inv.statut === "revoked") return { ok: false, code: "revoquee", message: "Cette invitation a été remplacée par une plus récente." };
+  if (inv.statut === "expired" || new Date(inv.expireLe) <= new Date()) {
+    ecrireTable("invitations", lireTable("invitations").map((i) => (i.id === inv.id ? { ...i, statut: "expired" } : i)));
+    return { ok: false, code: "expiree", message: "Cette invitation a expiré." };
+  }
+  return { ok: true, invitation: inv };
 }

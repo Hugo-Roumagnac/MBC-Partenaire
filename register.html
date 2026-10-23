@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!-- §6 : site non référencé par les moteurs de recherche -->
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="color-scheme" content="light dark">
+  <title>Créer mon compte · MBC Partenaires</title>
+  <link rel="icon" href="favicon.ico">
+  <link rel="stylesheet" href="front-end/css/style.css">
+  <script src="front-end/js/theme-init.js"></script>
+</head>
+<body>
+
+  <!-- =====================================================================
+       CRÉATION DE COMPTE SUR INVITATION
+       Ouverte depuis le lien reçu par e-mail : register?token=…
+       Sans jeton valide, aucune inscription n'est possible (§6).
+       ===================================================================== -->
+  <div class="login">
+
+    <!-- Panneau de présentation (masqué sur mobile) -->
+    <aside class="login__aside" aria-hidden="true">
+      <!-- Tracé de demi-terrain, purement décoratif -->
+      <svg class="login__court" viewBox="0 0 400 400" fill="none" stroke="currentColor" stroke-width="3">
+        <rect x="20" y="20" width="360" height="360" rx="4"/>
+        <circle cx="200" cy="20" r="60"/>
+        <rect x="140" y="20" width="120" height="150"/>
+        <circle cx="200" cy="170" r="60"/>
+        <path d="M60 20v60a140 140 0 0 0 280 0V20"/>
+        <circle cx="200" cy="380" r="60"/>
+      </svg>
+      <div class="login__aside-inner">
+        <div class="login__logo"><span class="logo-mark logo-mark--lg">MBC</span> MBC Partenaires</div>
+        <div class="login__pitch">
+          <h2>Chaque partenaire, <em>du premier contact</em> à l'encaissement.</h2>
+          <p>L'outil partagé de l'équipe partenariats : pipeline, contrats de saison, échéancier, contreparties et événements du Business Club.</p>
+        </div>
+        <div class="login__features">
+          <div class="login__feature"><svg class="icon"><use href="#i-target"/></svg><span>Score de la saison en temps réel face à l'objectif</span></div>
+          <div class="login__feature"><svg class="icon"><use href="#i-clock"/></svg><span>Relances, paiements en retard et reçus CERFA à ne plus oublier</span></div>
+          <div class="login__feature"><svg class="icon"><use href="#i-users"/></svg><span>Modifications partagées instantanément entre les membres</span></div>
+        </div>
+        <p class="login__foot">Accès réservé aux membres de l'équipe partenariats.</p>
+      </div>
+    </aside>
+
+    <main class="login__main">
+      <section class="login__card" aria-labelledby="register-title">
+        <div class="login__brand-mobile"><span class="logo-mark">MBC</span> MBC Partenaires</div>
+
+        <!-- ===== Vue 1 : vérification du lien ===== -->
+        <div id="view-checking" class="register__checking" role="status">
+          <span class="spinner"></span> Vérification de votre invitation…
+        </div>
+
+        <!-- ===== Vue 2 : lien invalide / expiré / déjà utilisé ===== -->
+        <div id="view-invalid" hidden>
+          <header class="login__brand">
+            <h1 id="register-title">Invitation non valide</h1>
+          </header>
+          <div class="alert alert--warning" role="alert">
+            <svg class="icon"><use href="#i-alert"/></svg>
+            <span id="invalid-message">Ce lien d'invitation n'est pas valide.</span>
+          </div>
+          <p class="login__links"><a href="index.html" class="btn btn--block" style="min-height: 44px">Aller à la page de connexion</a></p>
+        </div>
+
+        <!-- ===== Vue 3 : formulaire d'inscription ===== -->
+        <div id="view-register" hidden>
+          <header class="login__brand">
+            <h1>Créer mon compte</h1>
+            <p>Vous avez été invité(e) à rejoindre l'équipe partenariats.</p>
+          </header>
+
+          <form id="register-form" class="login__form" novalidate>
+            <div class="field">
+              <label for="register-email">Adresse e-mail</label>
+              <input id="register-email" name="email" type="email" autocomplete="username" readonly aria-describedby="register-email-hint">
+              <span class="field__hint" id="register-email-hint">L'adresse à laquelle l'invitation a été envoyée.</span>
+            </div>
+            <div class="form-grid form-grid--2">
+              <div class="field">
+                <label for="register-prenom">Prénom</label>
+                <input id="register-prenom" name="prenom" type="text" autocomplete="given-name" maxlength="80" required>
+              </div>
+              <div class="field">
+                <label for="register-nom">Nom</label>
+                <input id="register-nom" name="nom" type="text" autocomplete="family-name" maxlength="80" required>
+              </div>
+            </div>
+            <div class="field">
+              <label for="register-password">Mot de passe</label>
+              <div class="password">
+                <input id="register-password" name="password" type="password" minlength="8" maxlength="72" autocomplete="new-password" placeholder="8 caractères minimum" required>
+                <button type="button" class="btn btn--ghost btn--icon btn--small password__toggle" data-toggle-password="register-password" aria-label="Afficher le mot de passe">
+                  <svg class="icon icon--sm"><use href="#i-eye"/></svg>
+                </button>
+              </div>
+            </div>
+            <div class="field">
+              <label for="register-confirm">Confirmer le mot de passe</label>
+              <input id="register-confirm" name="confirm" type="password" minlength="8" maxlength="72" autocomplete="new-password" required>
+            </div>
+
+            <p id="register-error" class="alert alert--danger" role="alert" hidden></p>
+
+            <button type="submit" class="btn btn--accent btn--block" id="register-submit" style="min-height: 44px">Créer mon compte</button>
+          </form>
+          <p class="login__links">Déjà un compte ? <a href="index.html">Se connecter</a></p>
+        </div>
+
+        <p class="login__legal">Données de contacts professionnels traitées pour la gestion de la relation avec les partenaires du club (intérêt légitime). Hébergement en Europe.</p>
+      </section>
+    </main>
+  </div>
+
+  <script type="module" src="front-end/js/register.js"></script>
+</body>
+</html>

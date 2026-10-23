@@ -5,8 +5,11 @@
 | Page | Rôle |
 |---|---|
 | `index.html` | **Page d'accueil = connexion** (§4.1). Mode démo : comptes `thomas@exemple.fr` / `eric@exemple.fr`, tout mot de passe de 8 caractères. |
+| `register.html` | **Création de compte sur invitation** (lien reçu par e-mail : `/register?token=…`). Voir [`supabase/README-invitations.md`](./supabase/README-invitations.md). |
 | `app.html` | Application (5 écrans + fiche partenaire). Redirige vers `index.html` si personne n'est connecté. |
 | `front-end/html/*.html` | Anciennes adresses, redirigent vers les nouvelles pages. |
+
+Invitations : menu du compte → **Inviter un membre**. Mise en service (table, Edge Function, e-mails, variables d'environnement) : [`supabase/README-invitations.md`](./supabase/README-invitations.md).
 
 Écrans : `app.html#/dashboard`, `#/pipeline`, `#/partenaires`, `#/paiements`, `#/evenements` ; fiche : `?fiche=<id>` (ex. `#/partenaires?fiche=myjob`).
 
