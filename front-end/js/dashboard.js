@@ -81,7 +81,7 @@ export function renderDashboard() {
   texte("kpi-delivered", `${kpis.contreparties.livrees} / ${kpis.contreparties.total}`);
   texte("kpi-delivered-sub", `Mécénat ${formatEuro(kpis.contreparties.mecenat)} · CERFA à émettre : ${kpis.contreparties.cerfa}`);
 
-  renderRepartition(score.encaisse); // v2 : répartition Cotisations / Sponsoring / Mécénat
+  renderRepartition(); // v2 : sous Signé / Encaissé, montants validés et total des cotisations
 
   // ----- À faire : chaque ligne ouvre la fiche -----
   texte("todo-count", String(t.todo.length));
@@ -126,38 +126,16 @@ export function renderDashboard() {
 }
 
 // =============================================================================
-// v2 — RÉPARTITION DU MONTANT SIGNÉ (bloc « Score de la saison »)
+// v2 — RÉPARTITION SOUS LES TOTAUX « Signé » ET « Encaissé »
 // =============================================================================
-// Calculée à partir des contrats signés, sans saisie (règles détaillées dans selectors.calculerRepartition) :
-// une barre empilée montre la part de chaque catégorie dans le signé, puis une ligne par catégorie donne
-// le montant signé, sa part, l'encaissé (au prorata des paiements) et le nombre de partenaires.
-const COULEURS_REPARTITION = { Cotisations: "cotisations", Sponsoring: "sponsoring", Mécénat: "mecenat" }; // suffixes CSS (couleurs dans screens.css)
-
-function renderRepartition(encaisseScore) {
+// Deux lignes sous chaque total : la part qui vient des montants validés et le TOTAL des cotisations
+// (règles et exemple AXA dans selectors.calculerRepartition). Les deux lignes font exactement le total.
+function renderRepartition() {
   const r = calculerRepartition(store.partenaires); // calcul pur
-  const liste = $("repart-list"); if (!liste) return;
-  texte("repart-sub", r.totalSigne ? `${formatEuro(r.totalEncaisse)} encaissés sur ${formatEuro(r.totalSigne)}` : "Aucun partenaire signé");
-
-  // Barre empilée : chaque segment = part de la catégorie dans le signé ; la partie claire = déjà encaissée
-  const barre = $("repart-bar");
-  barre.setAttribute("aria-label", r.lignes.map((l) => `${l.categorie} ${l.part} %`).join(", "));
-  barre.innerHTML = r.lignes.filter((l) => l.signe > 0).map((l) => `<span class="repart__seg repart__seg--${COULEURS_REPARTITION[l.categorie]}" style="--part:${l.signe}; --enc:${l.pctEncaisse}" title="${escapeHtml(l.categorie)} : ${formatEuro(l.signe)} (${l.part} %)"></span>`).join("");
-
-  // Une ligne par catégorie
-  liste.innerHTML = r.lignes.map((l) => `
-    <div class="repart__row">
-      <span class="repart__label"><span class="repart__dot repart__dot--${COULEURS_REPARTITION[l.categorie]}"></span>${escapeHtml(l.categorie)}</span>
-      <span class="repart__val"><strong>${formatEuro(l.signe)}</strong><span>${l.part} % du signé · ${l.nombre} partenaire${l.nombre > 1 ? "s" : ""}</span></span>
-      <span class="repart__enc">
-        <span class="meter__track"><span class="meter__fill" style="--value:${l.pctEncaisse}"></span></span>
-        <span>${formatEuro(l.encaisse)} encaissés (${l.pctEncaisse} %)</span>
-      </span>
-    </div>`).join("");
-
-  // Notes : apports en nature (hors argent) et éventuel encaissé hors contrats signés
-  const notes = [];
-  if (r.nature.valeur > 0) notes.push(`+ ${formatEuro(r.nature.valeur)} d'apports en nature (${r.nature.nombre} partenaire${r.nature.nombre > 1 ? "s" : ""}, valeur estimée, non comptée dans le signé).`);
-  const ecart = Math.round((encaisseScore - r.totalEncaisse) * 100) / 100; // l'encaissé du score compte TOUTES les échéances payées de la saison
-  if (ecart > 0) notes.push(`${formatEuro(ecart)} encaissés hors contrats signés (fiches pas encore à l'étape « Signé » ou paiements au-delà du montant validé).`);
-  const note = $("repart-note"); note.hidden = !notes.length; note.textContent = notes.join(" ");
+  const ligne = (libelle, montant, titre = "") => `<span class="score__split-row"${titre ? ` title="${escapeHtml(titre)}"` : ""}><span>${libelle}</span><strong>${formatEuro(montant)}</strong></span>`;
+  const signe = $("score-signed-split"), cash = $("score-cashed-split");
+  if (signe) signe.innerHTML = ligne("Montants validés", r.signe.montants, r.signe.mecenat ? `dont ${formatEuro(r.signe.mecenat)} de mécénat` : "")
+    + (r.signe.mecenat ? `<span class="score__split-note">dont mécénat ${formatEuro(r.signe.mecenat)}</span>` : "")
+    + ligne("Cotisations", r.signe.cotisations);
+  if (cash) cash.innerHTML = ligne("Montants validés", r.encaisse.montants) + ligne("Cotisations", r.encaisse.cotisations, "Paiements partiels répartis au prorata du contrat de chaque partenaire");
 }

@@ -136,24 +136,12 @@
             </div>
 
             <div class="score__figures">
-              <div class="score__fig score__fig--success kpi"><span class="kpi__label">Signé</span><span id="score-signed" class="kpi__value">—</span></div>
-              <div class="score__fig kpi"><span class="kpi__label">Encaissé</span><span id="score-cashed" class="kpi__value">—</span></div>
+              <div class="score__fig score__fig--success kpi"><span class="kpi__label">Signé</span><span id="score-signed" class="kpi__value">—</span><span class="score__split" id="score-signed-split"></span></div>
+              <div class="score__fig kpi"><span class="kpi__label">Encaissé</span><span id="score-cashed" class="kpi__value">—</span><span class="score__split" id="score-cashed-split"></span></div>
               <div class="score__fig score__fig--info kpi"><span class="kpi__label">En négociation</span><span id="score-negotiation" class="kpi__value">—</span></div>
               <div class="score__fig kpi"><span class="kpi__label">Reste à trouver</span><span id="score-remaining" class="kpi__value">—</span></div>
             </div>
-
-            <!-- v2 : RÉPARTITION DE L'ARGENT — calculée automatiquement à partir des contrats signés
-                 (cotisation validée, part de mécénat, reste du montant validé = sponsoring).
-                 Aucune saisie : calcul selectors.calculerRepartition, rendu dashboard.js (renderRepartition). -->
-            <div class="repart" aria-labelledby="h-repart">
-              <div class="repart__head">
-                <h4 id="h-repart" class="score__main-label">Répartition du montant signé</h4>
-                <span class="repart__sub" id="repart-sub"></span>
-              </div>
-              <div class="repart__bar" id="repart-bar" role="img"></div>
-              <div class="repart__list" id="repart-list"></div>
-              <p class="repart__note" id="repart-note" hidden></p>
-            </div>
+            <!-- v2 : sous « Signé » et « Encaissé », répartition montants validés / cotisations (dashboard.renderRepartition) -->
           </article>
 
           <!-- ---- 4 indicateurs ---- -->

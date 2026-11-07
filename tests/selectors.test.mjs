@@ -76,22 +76,16 @@ test("pipeline : « Signé » = soldés, « Non encaissé » = signés avec un r
   assert.equal(colonnePipeline(vue({ etape: "Négociation", encaisse: 0 })), "Négociation"); // seule l'étape « Signé » est concernée
 });
 
-test("répartition automatique : cotisations / sponsoring / mécénat, encaissé au prorata", () => {
-  const a = vue({ id: "a", montantValide: 2500, cotisationValidee: 200, dontMecenat: 2000, encaisse: 1350 }); // cas « MyJob », payé à 50 %
-  const b = vue({ id: "b", montantValide: 1000, cotisationValidee: 200, encaisse: 1200 }); // payé à 100 %
-  const c = vue({ id: "c", etape: "Négociation", montantValide: 9999, cotisationValidee: 200 }); // non signé : ignoré
-  const n = vue({ id: "n", montantValide: 0, cotisationValidee: 0, contrat: { natureValeur: 800 } }); // apport en nature
-  const r = calculerRepartition([a, b, c, n]);
-  const l = Object.fromEntries(r.lignes.map((x) => [x.categorie, x]));
-  assert.equal(l.Cotisations.signe, 400); // 200 + 200
-  assert.equal(l.Mécénat.signe, 2000); // part de mécénat de A
-  assert.equal(l.Sponsoring.signe, 1500); // (2500 − 2000) + 1000
-  assert.equal(r.totalSigne, 3900); // = 2700 + 1200, le signé du score
-  assert.equal(l.Cotisations.encaisse, 300); // 100 (50 % de 200) + 200
-  assert.equal(l.Mécénat.encaisse, 1000); // 50 % de 2000
-  assert.equal(r.totalEncaisse, 2550); // 1350 + 1200 : les catégories retombent exactement sur l'encaissé
-  assert.equal(r.nature.valeur, 800); // apports en nature à part
-  assert.equal(l.Cotisations.nombre, 2);
+test("répartition sous Signé / Encaissé : montants validés et total des cotisations", () => {
+  const axa = vue({ id: "axa", montantValide: 500, cotisationValidee: 200, encaisse: 700 }); // exemple AXA, tout payé
+  const myjob = vue({ id: "myjob", montantValide: 2500, cotisationValidee: 200, dontMecenat: 2000, encaisse: 1350 }); // payé à 50 %
+  const prospect = vue({ id: "p", etape: "Négociation", montantValide: 0, cotisationValidee: 0, encaisse: 300 }); // paiement sans contrat validé
+  const r = calculerRepartition([axa, myjob, prospect]);
+  assert.deepEqual(r.signe, { montants: 3000, cotisations: 400, mecenat: 2000 }); // 500 + 2500 ; 200 + 200 ; le non signé ne compte pas
+  assert.equal(calculerRepartition([axa]).encaisse.montants, 500); // AXA : 500 € vont aux montants validés…
+  assert.equal(calculerRepartition([axa]).encaisse.cotisations, 200); // …et 200 € aux cotisations
+  assert.equal(r.encaisse.cotisations, 300); // 200 (AXA) + 100 (50 % de 200 pour MyJob)
+  assert.equal(r.encaisse.montants + r.encaisse.cotisations, 700 + 1350 + 300); // retombe exactement sur l'encaissé total
 });
 
 test("événements : « Contact à rajouter » existe et alimente la liste « À faire »", () => {

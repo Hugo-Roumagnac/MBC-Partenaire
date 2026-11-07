@@ -206,44 +206,32 @@ export function validerSiret(texte) {
 export const formaterSiret = (siret) => (String(siret || "").length === 14 ? `${siret.slice(0, 3)} ${siret.slice(3, 6)} ${siret.slice(6, 9)} ${siret.slice(9)}` : String(siret || ""));
 
 // =============================================================================
-// v2 — RÉPARTITION DE L'ARGENT (tableau de bord, bloc « Score de la saison »)
+// v2 — RÉPARTITION DE L'ARGENT : montants validés / cotisations (bloc « Score de la saison »)
 // =============================================================================
-// Calculée AUTOMATIQUEMENT à partir des contrats des partenaires signés, sans aucune saisie :
-//   • Cotisations = cotisation validée
-//   • Mécénat     = part « dont mécénat » (incluse dans le montant validé, plafonnée à celui-ci)
-//   • Sponsoring  = montant validé − part de mécénat
-// La somme des trois = le montant signé du score (totalValide de chaque signé).
-// « Encaissé » de chaque catégorie = au PRORATA des paiements du partenaire : s'il a payé 50 % de son
-// contrat, on compte 50 % de sa cotisation, 50 % de son mécénat… Le sponsoring absorbe les arrondis,
-// pour que les trois catégories retombent EXACTEMENT sur l'encaissé du partenaire.
-// Les apports en nature (valeur estimée) sont donnés à part : ils ne sont pas de l'argent encaissé.
-export const CATEGORIES_REPARTITION = ["Cotisations", "Sponsoring", "Mécénat"];
-
+// Affichée SOUS les totaux « Signé » et « Encaissé », calculée à partir des contrats, sans saisie.
+// Exemple : AXA a validé 500 € + 200 € de cotisation et a tout payé (700 €)
+//   → Signé    : 500 € dans « Montants validés », 200 € dans « Cotisations »
+//   → Encaissé : 500 € dans « Montants validés », 200 € dans « Cotisations »
+// et ainsi de suite pour chaque partenaire : on obtient le TOTAL des cotisations, etc.
+//
+// Signé    : partenaires à l'étape « Signé » (même règle que le score) ; montant validé et cotisation validée.
+// Encaissé : TOUTES les échéances payées de la saison (même règle que le score « Encaissé »).
+//            Un paiement partiel est réparti au PRORATA du contrat du partenaire : s'il a payé la moitié,
+//            la moitié va aux cotisations… La cotisation encaissée ne dépasse jamais la cotisation validée ;
+//            le reste (y compris un paiement sans contrat validé) compte en « Montants validés ».
+// Les deux parts retombent donc EXACTEMENT sur les totaux affichés.
 export function calculerRepartition(partenaires) {
-  const signes = partenaires.filter((v) => v.etape === "Signé"); // même règle que le score de saison
-  const cumul = Object.fromEntries(CATEGORIES_REPARTITION.map((c) => [c, { signe: 0, encaisse: 0, nombre: 0 }])); // en cents
-  let natureCents = 0, natureNombre = 0; // apports en nature
-  for (const v of signes) {
-    const cot = enCents(v.cotisationValidee); // cotisation
-    const mec = Math.min(enCents(v.dontMecenat), enCents(v.montantValide)); // mécénat (inclus dans le montant validé)
-    const spo = enCents(v.montantValide) - mec; // sponsoring « pur »
-    const total = cot + mec + spo; // = totalValide en cents
-    const paye = Math.min(enCents(v.encaisse), total); // encaissé, plafonné au contrat (un trop-perçu ne se répartit pas)
-    const taux = total > 0 ? paye / total : 0; // part payée (0 → 1)
-    const encCot = Math.round(cot * taux), encMec = Math.round(mec * taux); // prorata
-    const parts = { Cotisations: [cot, encCot], Mécénat: [mec, encMec], Sponsoring: [spo, paye - encCot - encMec] }; // le sponsoring absorbe l'arrondi
-    for (const [c, [s, e]] of Object.entries(parts)) { cumul[c].signe += s; cumul[c].encaisse += e; if (s > 0) cumul[c].nombre++; } // cumuls
-    const nature = enCents(v.contrat?.natureValeur ?? v.natureValeur); // valeur des apports en nature
-    if (nature > 0) { natureCents += nature; natureNombre++; }
+  const signe = { montants: 0, cotisations: 0, mecenat: 0 }, encaisse = { montants: 0, cotisations: 0 }; // en cents
+  for (const v of partenaires) {
+    const mv = enCents(v.montantValide), cv = enCents(v.cotisationValidee); // contrat de la saison
+    if (v.etape === "Signé") { signe.montants += mv; signe.cotisations += cv; signe.mecenat += Math.min(enCents(v.dontMecenat), mv); } // signé
+    const paye = enCents(v.encaisse); // échéances payées du partenaire
+    if (!paye) continue;
+    const cot = mv + cv > 0 ? Math.min(cv, Math.round((paye * cv) / (mv + cv))) : 0; // part « cotisation » au prorata, plafonnée
+    encaisse.cotisations += cot; encaisse.montants += paye - cot; // le reste va aux montants validés
   }
-  const lignes = CATEGORIES_REPARTITION.map((c) => ({ categorie: c, signe: enEuros(cumul[c].signe), encaisse: enEuros(cumul[c].encaisse), nombre: cumul[c].nombre })); // euros
-  const totalSigne = enEuros(lignes.reduce((t, l) => t + enCents(l.signe), 0)); // = score.signe
-  const totalEncaisse = enEuros(lignes.reduce((t, l) => t + enCents(l.encaisse), 0)); // encaissé réparti (contrats signés)
-  return {
-    lignes: lignes.map((l) => ({ ...l, part: totalSigne > 0 ? Math.round((l.signe / totalSigne) * 100) : 0, pctEncaisse: l.signe > 0 ? Math.round((l.encaisse / l.signe) * 100) : 0 })), // + parts en %
-    totalSigne, totalEncaisse,
-    nature: { valeur: enEuros(natureCents), nombre: natureNombre } // à titre indicatif
-  };
+  const euros = (o) => Object.fromEntries(Object.entries(o).map(([k, c]) => [k, enEuros(c)])); // cents → euros
+  return { signe: euros(signe), encaisse: euros(encaisse) };
 }
 
 // =============================================================================

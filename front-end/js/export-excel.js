@@ -1,5 +1,5 @@
 // export-excel.js — génère le classeur Excel daté à partir du store (§4.8).
-// 6 onglets d'origine + v2 : « Répartition » (cotisations / sponsoring / mécénat) et « Journal » (audit).
+// 6 onglets d'origine + v2 : « Répartition » (montants validés / cotisations) et « Journal » (audit).
 import { jourNumero, aujourdhui } from "./dates.js"; // conversion ISO → numéro de jour
 import { totalValide, totalDemande, formaterSiret, colonnePipeline, calculerRepartition, resumerAppareil } from "./selectors.js"; // totaux (v2 : + SIRET, ventilation, journal)
 import { showToast } from "./utils.js"; // message
@@ -66,12 +66,13 @@ export async function exporterExcel(store) {
   XLSX.utils.book_append_sheet(wb, feuille(XLSX, ["Partenaire", "Date", "Auteur", "Échange", "Automatique"],
     raw.echanges.slice().sort((a, b) => String(b.date).localeCompare(String(a.date))).map((x) => [nom.get(x.partenaireId) || "?", date(x.date), x.auteur || "", x.texte || "", oui(x.auto)])), "Historique"); // une ligne par échange
 
-  // 7) v2 — RÉPARTITION du montant signé : mêmes chiffres que le bloc « Score de la saison »
+  // 7) v2 — RÉPARTITION : mêmes chiffres que sous « Signé » et « Encaissé » au tableau de bord
   const rep = calculerRepartition(store.partenaires);
-  XLSX.utils.book_append_sheet(wb, feuille(XLSX, ["Catégorie", "Signé", "Part du signé", "Encaissé (prorata)", "Nombre de partenaires"],
-    [...rep.lignes.map((l) => [l.categorie, euro(l.signe), `${l.part} %`, euro(l.encaisse), l.nombre]),
-      ["TOTAL", euro(rep.totalSigne), "100 %", euro(rep.totalEncaisse), ""],
-      ["Apports en nature (valeur estimée, hors total)", euro(rep.nature.valeur), "", "", rep.nature.nombre]]), "Répartition");
+  XLSX.utils.book_append_sheet(wb, feuille(XLSX, ["", "Signé", "Encaissé"],
+    [["Montants validés", euro(rep.signe.montants), euro(rep.encaisse.montants)],
+      ["dont mécénat", euro(rep.signe.mecenat), ""],
+      ["Cotisations", euro(rep.signe.cotisations), euro(rep.encaisse.cotisations)],
+      ["TOTAL", euro(rep.signe.montants + rep.signe.cotisations), euro(rep.encaisse.montants + rep.encaisse.cotisations)]]), "Répartition");
 
   // 8) v2 — JOURNAL : entrées chargées (les plus récentes), avec compte et appareil
   const heure = (iso) => (iso ? { t: "n", v: new Date(iso).getTime() / 86400000 + 25569 - new Date(iso).getTimezoneOffset() / 1440, z: "dd/mm/yyyy hh:mm" } : ""); // horodatage → série Excel (heure locale)

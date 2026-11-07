@@ -158,12 +158,14 @@ const URL = BASE + "app.html";
   await B.goto(URL + "#/partenaires");
   await B.waitForSelector('tr[data-partner-id="entreprise-test-e2e"] .plogo--img img', { timeout: 4000 }); // temps réel inter-onglets
 
-  console.log("v2 — Répartition automatique dans le Score de la saison...");
+  console.log("v2 — Répartition montants validés / cotisations sous Signé et Encaissé...");
   await A.goto(URL + "#/dashboard");
-  assert.equal(await A.locator("#repart-list .repart__row").count(), 3, "Cotisations, Sponsoring, Mécénat");
-  const somme = await A.$$eval("#repart-list .repart__val strong", (els) => els.reduce((t, e) => t + Number(e.textContent.replace(/[^0-9,]/g, "").replace(",", ".")), 0));
-  const signe = Number((await A.textContent("#score-signed")).replace(/[^0-9,]/g, "").replace(",", "."));
-  assert.equal(somme, signe, "La répartition doit retomber exactement sur le montant signé");
+  const euros = (t) => Number(String(t).replace(/[^0-9,]/g, "").replace(",", ".")); // « 1 200 € » → 1200
+  for (const [total, split] of [["#score-signed", "#score-signed-split"], ["#score-cashed", "#score-cashed-split"]]) {
+    const parts = await A.$$eval(`${split} .score__split-row strong`, (els) => els.map((e) => e.textContent));
+    assert.equal(parts.length, 2, "Deux lignes : montants validés et cotisations");
+    assert.equal(parts.reduce((t, x) => t + euros(x), 0), euros(await A.textContent(total)), `La répartition de ${total} doit retomber sur le total`);
+  }
 
   console.log("v2 — Événements : « Contact à rajouter » ouvre la fiche contact...");
   await A.goto(URL + "#/evenements");

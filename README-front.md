@@ -103,7 +103,7 @@ npm run test:e2e
 | **Logos** des sponsors | Fiche (en-tête + Informations), Pipeline, Partenaires | `logos.js`, `api.js` (`deposerLogo`), `store.js` (`enregistrerLogo`) |
 | Statut **« Contact à rajouter »** | Événements › Présences | `evenements.js`, `contacts.js` |
 | **Journal d'audit** (qui / quoi / quel compte) | Écran Journal, fiche › Journal des modifications | `schema.sql` §2 bis, `api.js`, `store.js` (`restaurer`), `journal.js` |
-| **Répartition de l'argent** (cotisations / sponsoring / mécénat), calculée automatiquement | Tableau de bord › Score de la saison | `selectors.js` (`calculerRepartition`), `dashboard.js` |
+| **Répartition de l'argent** (montants validés / cotisations) sous « Signé » et « Encaissé », calculée automatiquement | Tableau de bord › Score de la saison | `selectors.js` (`calculerRepartition`), `dashboard.js` |
 
 **Mise à jour d'une base Supabase existante** : coller `supabase/migration-v2.sql` dans le SQL Editor et cliquer sur Run (4 lignes « ok » attendues). Alternative : relancer `supabase/schema.sql` en entier, après avoir retiré les membres fictifs de la section 4. Le script est idempotent (vérifié sur PostgreSQL 16) : il ajoute colonnes, tables, trigger et bucket sans toucher aux données.
 
@@ -200,26 +200,24 @@ Déposer une carte sur « Signé » ou sur « Non encaissé » la passe à l'ét
 
 ---
 
-## 12. Tableau de bord : répartition de l'argent
+## 12. Tableau de bord : répartition sous « Signé » et « Encaissé »
 
-Sous les 4 chiffres du bloc **« Score de la saison »**, la répartition du montant signé est **calculée automatiquement** à partir des contrats des partenaires signés — aucune saisie (`selectors.calculerRepartition`) :
+Dans le bloc **« Score de la saison »**, sous les totaux « Signé » et « Encaissé », deux lignes indiquent d'où vient l'argent — **calculé automatiquement** à partir des contrats, sans saisie (`selectors.calculerRepartition`) :
 
-| Catégorie | Calcul pour chaque partenaire signé |
-|---|---|
-| **Cotisations** | cotisation validée |
-| **Mécénat** | part « dont mécénat » (incluse dans le montant validé) |
-| **Sponsoring** | montant validé − part de mécénat |
+| | Signé (partenaires à l'étape « Signé ») | Encaissé (échéances payées de la saison) |
+|---|---|---|
+| **Montants validés** | Σ montants validés (avec, en dessous, « dont mécénat ») | part des paiements qui revient aux montants validés |
+| **Cotisations** | Σ cotisations validées | part des paiements qui revient aux cotisations |
 
-- La somme des trois est **exactement** le montant signé du score.
-- **Encaissé** par catégorie = au **prorata des paiements** du partenaire : s'il a payé 50 % de son contrat, on compte 50 % de sa cotisation, 50 % de son mécénat… (le sponsoring absorbe les centimes d'arrondi, pour que le total retombe juste).
-- La barre empilée montre la part de chaque catégorie ; la partie vive de chaque segment est la part déjà encaissée.
-- Les **apports en nature** (valeur estimée dans le contrat) sont signalés à part : ce n'est pas de l'argent encaissé.
-- Si l'« Encaissé » du score dépasse l'encaissé réparti, une note l'indique (échéances payées par des fiches pas encore à l'étape « Signé », ou paiements au-delà du montant validé).
+Exemple : AXA a validé **500 €** + **200 €** de cotisation et a tout payé → 500 € comptent en « Montants validés » et 200 € en « Cotisations », côté Signé comme côté Encaissé ; les lignes « Cotisations » donnent ainsi le **total des cotisations** du club.
+
+- Un paiement partiel est réparti au **prorata** du contrat du partenaire (moitié payée → moitié de sa cotisation), sans jamais dépasser la cotisation validée ; le reste, y compris un paiement d'une fiche sans contrat validé, compte en « Montants validés ».
+- Les deux lignes retombent **exactement** sur le total affiché.
 - **Export Excel** : onglet « Répartition ».
 
 ---
 
 ## 13. Tests
 
-- `npm test` : tests unitaires (dont SIRET/Luhn, colonne Non encaissé et reste dû, répartition automatique et prorata, « Contact à rajouter » dans À faire, résumé de l'appareil).
-- `npm run test:e2e` : parcours navigateur complet, étendu en v2 (colonnes Signé / Non encaissé, SIRET refusé puis accepté, import de logo visible dans l'autre onglet, répartition égale au montant signé, fenêtre contact automatique, journal et restauration d'une valeur).
+- `npm test` : tests unitaires (dont SIRET/Luhn, colonne Non encaissé et reste dû, répartition montants validés / cotisations (exemple AXA), « Contact à rajouter » dans À faire, résumé de l'appareil).
+- `npm run test:e2e` : parcours navigateur complet, étendu en v2 (colonnes Signé / Non encaissé, SIRET refusé puis accepté, import de logo visible dans l'autre onglet, répartition égale aux totaux Signé et Encaissé, fenêtre contact automatique, journal et restauration d'une valeur).
