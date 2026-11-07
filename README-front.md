@@ -98,28 +98,31 @@ npm run test:e2e
 
 | Fonctionnalité | Où la trouver | Fichiers |
 |---|---|---|
-| Colonne **Encaissé** après « Signé » | Pipeline | `selectors.js` (`estSolde`, `colonnePipeline`), `store.js` (`COLONNES`), `pipeline.js` |
+| Colonne **Non encaissé** après « Signé » | Pipeline | `selectors.js` (`resteAEncaisser`, `estSolde`, `colonnePipeline`), `store.js` (`COLONNES`), `pipeline.js` |
 | **Numéro SIRET** (saisie, modification, contrôle) | Partenaires (colonne + bouton), fiche › Informations, fenêtre « Nouveau partenaire » | `selectors.js` (`validerSiret`), `siret.js`, `partenaires.js`, `fiche.js` |
 | **Logos** des sponsors | Fiche (en-tête + Informations), Pipeline, Partenaires | `logos.js`, `api.js` (`deposerLogo`), `store.js` (`enregistrerLogo`) |
 | Statut **« Contact à rajouter »** | Événements › Présences | `evenements.js`, `contacts.js` |
 | **Journal d'audit** (qui / quoi / quel compte) | Écran Journal, fiche › Journal des modifications | `schema.sql` §2 bis, `api.js`, `store.js` (`restaurer`), `journal.js` |
-| **Affectation des fonds** par catégorie | Tableau de bord, fiche › Affectation des fonds, Réglages | `selectors.js` (`calculerVentilation`), `dashboard.js`, `fiche.js` |
+| **Répartition de l'argent** (cotisations / sponsoring / mécénat), calculée automatiquement | Tableau de bord › Score de la saison | `selectors.js` (`calculerRepartition`), `dashboard.js` |
 
 **Mise à jour d'une base Supabase existante** : coller `supabase/migration-v2.sql` dans le SQL Editor et cliquer sur Run (4 lignes « ok » attendues). Alternative : relancer `supabase/schema.sql` en entier, après avoir retiré les membres fictifs de la section 4. Le script est idempotent (vérifié sur PostgreSQL 16) : il ajoute colonnes, tables, trigger et bucket sans toucher aux données.
 
-**Mode démo** : les nouvelles données de démonstration (affectations) ne sont créées qu'au premier lancement. Pour les voir, videz le stockage local du site (voir §0).
+**Nettoyage facultatif** : si vous aviez lancé la toute première version de `migration-v2.sql`, la table `affectations` et la colonne `reglages.categories` ne servent plus (la répartition est désormais calculée). `supabase/nettoyage-v2.sql` les retire ; les garder ne gêne pas l'application.
 
 ---
 
-## 7. Pipeline : colonne « Encaissé »
+## 7. Pipeline : colonnes « Signé » et « Non encaissé »
 
-« Encaissé » n'est **pas** une étape enregistrée en base : c'est une colonne **calculée**. Une fiche à l'étape « Signé » dont les échéances payées couvrent le total validé (montant + cotisation) y est rangée automatiquement ; si une échéance est décochée, la carte revient dans « Signé ».
+- **Signé** ne montre que les partenaires **soldés** (tout le montant validé + la cotisation est encaissé, ou contrat à 0 € comme un apport en nature).
+- **Non encaissé**, juste après, montre les partenaires signés qui **doivent encore de l'argent**. Chaque carte affiche le **reste dû** et une barre de progression ; le total de la colonne est la somme des restes dus.
+
+« Non encaissé » n'est **pas** une étape enregistrée en base : c'est une colonne **calculée** (`selectors.colonnePipeline`). Dès que toutes les échéances d'un partenaire sont cochées payées, sa carte repasse d'elle-même dans « Signé » ; si une échéance est décochée, elle revient dans « Non encaissé ».
 
 Pourquoi ce choix plutôt qu'une 9e étape ?
-- aucune donnée en double : impossible d'avoir une carte « Encaissé » qui ne l'est pas réellement ;
+- aucune donnée en double : impossible d'avoir une carte mal rangée ;
 - toutes les règles existantes (`etape === "Signé"` : score, KPI, CERFA, invitations…) restent justes sans modification.
 
-Déposer une carte sur « Encaissé » la passe en « Signé » ; elle rejoint « Encaissé » dès que ses échéances sont cochées payées. Les cartes signées affichent une barre de progression de l'encaissement.
+Déposer une carte sur « Signé » ou sur « Non encaissé » la passe à l'étape « Signé » ; c'est ensuite l'état de ses paiements qui décide de la colonne. Dans la fiche, un badge « Non encaissé · reste … € » le rappelle.
 
 ---
 
@@ -197,16 +200,26 @@ Déposer une carte sur « Encaissé » la passe en « Signé » ; elle rejoint �
 
 ---
 
-## 12. Tableau de bord : affectation des fonds
+## 12. Tableau de bord : répartition de l'argent
 
-- **Saisie** : fiche › « Affectation des fonds ». Chaque ligne = catégorie + montant + note. « Pré-remplir depuis le contrat » propose : cotisation validée → *Cotisations*, part de mécénat → *Mécénat*, reste du montant validé → *Sponsoring* (sans doublon). Un bandeau signale « Reste à affecter » ou un dépassement par rapport au total validé.
-- **Catégories** : modifiables dans Réglages du club (par défaut : Cotisations, Sponsoring, Mécénat, Équipement, Événementiel, Déplacements, Formation jeunes, Fonctionnement). Retirer une catégorie ne supprime aucun montant : elle reste affichée « hors liste » tant qu'elle est utilisée.
-- **Cumuls** (`selectors.calculerVentilation`, partenaires **signés** de la saison) : par catégorie, total affecté, part **encaissée au prorata** (un partenaire qui a payé 50 % de son contrat a encaissé 50 % de chacune de ses affectations), nombre de partenaires, et détail dépliable. Exemple : trois partenaires à 200 € en *Cotisations* → la ligne Cotisations affiche 600 €.
-- **Export** : onglets « Affectations » (lignes) et « Ventilation » (cumuls).
+Sous les 4 chiffres du bloc **« Score de la saison »**, la répartition du montant signé est **calculée automatiquement** à partir des contrats des partenaires signés — aucune saisie (`selectors.calculerRepartition`) :
+
+| Catégorie | Calcul pour chaque partenaire signé |
+|---|---|
+| **Cotisations** | cotisation validée |
+| **Mécénat** | part « dont mécénat » (incluse dans le montant validé) |
+| **Sponsoring** | montant validé − part de mécénat |
+
+- La somme des trois est **exactement** le montant signé du score.
+- **Encaissé** par catégorie = au **prorata des paiements** du partenaire : s'il a payé 50 % de son contrat, on compte 50 % de sa cotisation, 50 % de son mécénat… (le sponsoring absorbe les centimes d'arrondi, pour que le total retombe juste).
+- La barre empilée montre la part de chaque catégorie ; la partie vive de chaque segment est la part déjà encaissée.
+- Les **apports en nature** (valeur estimée dans le contrat) sont signalés à part : ce n'est pas de l'argent encaissé.
+- Si l'« Encaissé » du score dépasse l'encaissé réparti, une note l'indique (échéances payées par des fiches pas encore à l'étape « Signé », ou paiements au-delà du montant validé).
+- **Export Excel** : onglet « Répartition ».
 
 ---
 
 ## 13. Tests
 
-- `npm test` : 13 tests unitaires (dont SIRET/Luhn, colonne Encaissé, ventilation et prorata, pré-remplissage, « Contact à rajouter » dans À faire, résumé de l'appareil).
-- `npm run test:e2e` : parcours navigateur complet, étendu en v2 (colonne Encaissé, SIRET refusé puis accepté, import de logo visible dans l'autre onglet, affectation cumulée au tableau de bord, fenêtre contact automatique, journal et restauration d'une valeur).
+- `npm test` : tests unitaires (dont SIRET/Luhn, colonne Non encaissé et reste dû, répartition automatique et prorata, « Contact à rajouter » dans À faire, résumé de l'appareil).
+- `npm run test:e2e` : parcours navigateur complet, étendu en v2 (colonnes Signé / Non encaissé, SIRET refusé puis accepté, import de logo visible dans l'autre onglet, répartition égale au montant signé, fenêtre contact automatique, journal et restauration d'une valeur).

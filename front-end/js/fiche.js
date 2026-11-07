@@ -1,5 +1,5 @@
 // fiche.js — contenu de la fiche partenaire (le panneau latéral lui-même est géré par drawer.js).
-import { store, ecrire, ajouter, supprimer, changerEtape, noterHistorique, assurerContrat, appliquerPlanEcheancier, auteur, preRemplirAffectations } from "./store.js"; // état + actions (v2 : + ventilation)
+import { store, ecrire, ajouter, supprimer, changerEtape, noterHistorique, assurerContrat, appliquerPlanEcheancier, auteur } from "./store.js"; // état + actions
 import { totalValide, totalDemande, cerfaAEmettre, montantParDefaut, planifierEcheancier, enCents, enEuros, statutAction } from "./selectors.js"; // règles métier
 import { aujourdhui } from "./dates.js"; // date du jour
 import { creerDrawer } from "./drawer.js"; // mécanisme du panneau
@@ -7,7 +7,7 @@ import { naviguer } from "./router.js"; // navigation par URL
 import { formatEuro, formatDate, escapeHtml, showToast, stageSlug, montantAffiche, montantMeta } from "./utils.js";
 import { icon } from "./icons.js"; // affichage
 // ---- v2 ----
-import { validerSiret, formaterSiret, totalAffecte, proposerAffectations, PRESENCE_CONTACT } from "./selectors.js"; // SIRET, ventilation, statut contact
+import { validerSiret, formaterSiret, resteAEncaisser, PRESENCE_CONTACT } from "./selectors.js"; // SIRET, reste dû, statut contact
 import { importerLogo, retirerLogo, logoHtml, verifierFichier } from "./logos.js"; // logos
 import { journalFicheHtml, surClicRestaurer } from "./journal.js"; // journal de la fiche
 import { lienAnnuaire } from "./siret.js"; // recherche du SIRET
@@ -143,19 +143,6 @@ async function surClic(e) {
       // ---- v2 : logo ----
       case "logo-choisir": $("f-logo-file").click(); return; // ouvre le sélecteur de fichier du système
       case "logo-retirer": await retirerLogo(v.id); showToast("Logo retiré"); break; // revient au monogramme
-      // ---- v2 : affectation des fonds ----
-      case "add-affect": { // nouvelle ligne : 1re catégorie non utilisée, montant = reste à affecter
-        const utilisees = new Set(v.affectations.map((a) => a.categorie)); // catégories déjà présentes
-        const categorie = store.reglages.categories.find((c) => !utilisees.has(c)) || store.reglages.categories[0] || "Autre"; // proposition
-        const reste = Math.max(0, enEuros(enCents(totalValide(v)) - enCents(totalAffecte(v)))); // ce qui n'est pas encore réparti
-        await ajouter("affectations", { partenaireId: v.id, saison, categorie, montant: reste, note: "" }); break;
-      }
-      case "del-affect": await supprimer("affectations", b.dataset.id); break; // supprime la ligne
-      case "prefill-affect": { // cotisation → Cotisations, mécénat → Mécénat, reste → Sponsoring
-        const lignes = proposerAffectations(v); // règle pure (selectors.js)
-        if (!lignes.length) { showToast(totalValide(v) > 0 ? "Rien à pré-remplir : ces catégories sont déjà présentes" : "Renseignez d'abord le montant validé du contrat"); return; }
-        await preRemplirAffectations(v.id, lignes); showToast(`${lignes.length} ligne${lignes.length > 1 ? "s" : ""} ajoutée${lignes.length > 1 ? "s" : ""}`); break;
-      }
       // ---- v2 : « Contact à rajouter » depuis la liste des présences de la fiche ----
       case "contact-presence": ouvrirContactPresence(b.dataset.id); return;
       case "add-echange": { // échange daté ajouté à la main
@@ -194,7 +181,7 @@ export function renderFiche(forcer = false) {
     v.type ? `<span class="badge">${escapeHtml(v.type)}</span>` : "",
     v.secteur ? `<span class="badge">${escapeHtml(v.secteur)}</span>` : "",
     cerfaAEmettre(v) ? '<span class="badge badge--warning">CERFA à émettre</span>' : "",
-    v.solde ? '<span class="badge badge--encaisse">Encaissé</span>' : "", // v2 : signé et soldé
+    v.etape === "Signé" && !v.solde ? `<span class="badge badge--non-encaisse">Non encaissé · reste ${formatEuro(resteAEncaisser(v))}</span>` : "", // v2 : paiement en attente
     v.etape === "Signé" && !v.siret ? '<span class="badge badge--warning">SIRET manquant</span>' : "", // v2 : utile pour la facture / le CERFA
     v.echeances.some((e) => !e.paye && e.datePrevue && e.datePrevue < jour) ? '<span class="badge badge--danger">Paiement en retard</span>' : "",
     stAction === "late" ? '<span class="badge badge--danger">Action en retard</span>' : ""
@@ -253,16 +240,6 @@ export function renderFiche(forcer = false) {
   $("count-cp").textContent = v.contrepartiesTotal ? `${v.contrepartiesLivrees} / ${v.contrepartiesTotal} livrées` : "";
   $("count-contacts").textContent = v.contacts.length || "";
   $("count-history").textContent = v.echanges.length || "";
-
-  // ---- v2 : affectation des fonds ----
-  const affecte = totalAffecte(v), ecart = enCents(tv) - enCents(affecte); // réparti / reste
-  $("count-affect").textContent = v.affectations.length ? `${formatEuro(affecte)} / ${formatEuro(tv)}` : "";
-  const categories = store.reglages.categories || []; // liste des réglages
-  majListe($("affect-tbody"), v.affectations.length ? v.affectations.map((a) => htmlAffectation(a, categories)).join("") : `<tr><td colspan="4" class="empty-cell">Aucune affectation. « Pré-remplir depuis le contrat » propose une répartition de départ.</td></tr>`, forcer);
-  const totalEl = $("affect-total");
-  totalEl.classList.toggle("contract-total--alerte", !!v.affectations.length && ecart !== 0); // ventilation incomplète ou dépassée
-  totalEl.innerHTML = `<span>Affecté : <strong>${formatEuro(affecte)}</strong></span><span>Total validé : <strong>${formatEuro(tv)}</strong></span>`
-    + (ecart > 0 ? `<span>Reste à affecter : <strong>${formatEuro(enEuros(ecart))}</strong></span>` : ecart < 0 ? `<span class="due--late">Dépassement : ${formatEuro(enEuros(-ecart))}</span>` : v.affectations.length ? `<span class="due--ok">✓ Entièrement ventilé</span>` : "");
 
   // ---- v2 : journal des modifications de la fiche ----
   const nbJournal = store.journal.filter((j) => j.partenaireId === v.id).length;
@@ -336,12 +313,3 @@ const htmlContact = (c) => `<fieldset class="contact-card" style="margin-inline:
     <div class="field"><label>Téléphone<input type="tel" class="input--sm" ${attrs("contacts", c.id, "tel")} value="${escapeHtml(c.tel || "")}"></label></div>
   </div>
 </fieldset>`;
-
-// v2 : ligne d'affectation des fonds (catégorie / montant / note). Les catégories viennent des réglages ;
-// une catégorie retirée des réglages reste affichée sur les lignes qui l'utilisent déjà.
-const htmlAffectation = (a, categories) => `<tr>
-  <td><select class="input--sm" ${attrs("affectations", a.id, "categorie")} aria-label="Catégorie">${[...new Set([...categories, a.categorie].filter(Boolean))].map((c) => `<option ${c === a.categorie ? "selected" : ""}>${escapeHtml(c)}</option>`).join("")}</select></td>
-  <td class="num"><input type="number" min="0" step="0.01" ${attrs("affectations", a.id, "montant")} value="${Number(a.montant) || 0}" aria-label="Montant affecté" style="max-width:110px; text-align:right"></td>
-  <td><input type="text" ${attrs("affectations", a.id, "note")} value="${escapeHtml(a.note || "")}" placeholder="Ex. : maillots U15" aria-label="Note"></td>
-  <td><button type="button" class="btn btn--ghost btn--icon btn--small" data-action="del-affect" data-id="${escapeHtml(a.id)}" aria-label="Supprimer la ligne ${escapeHtml(a.categorie)}" title="Supprimer">${icon("x", "icon--sm")}</button></td>
-</tr>`;

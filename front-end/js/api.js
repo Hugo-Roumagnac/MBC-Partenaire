@@ -3,8 +3,8 @@ import { CONFIG } from "./config.js"; // mode et identifiants
 import { seedTables } from "./mock-seed.js"; // données de départ du mode mock
 import { genererJeton, empreinte, normaliserEmail, emailValide, jetonPlausible, DUREE_INVITATION_HEURES } from "./invitations-core.js"; // invitations
 
-export const TABLES = ["partenaires", "contrats", "echeances", "contreparties", "contacts", "echanges", "evenements", "presences", "reglages", "membres", "affectations", "journal"]; // toutes les tables lues (v2 : + affectations, journal)
-export const TABLES_ENFANTS = ["contrats", "echeances", "contreparties", "contacts", "echanges", "presences", "affectations"]; // tables rattachées à une fiche (supprimées en cascade avec elle)
+export const TABLES = ["partenaires", "contrats", "echeances", "contreparties", "contacts", "echanges", "evenements", "presences", "reglages", "membres", "journal"]; // toutes les tables lues (v2 : + journal)
+export const TABLES_ENFANTS = ["contrats", "echeances", "contreparties", "contacts", "echanges", "presences"]; // tables rattachées à une fiche (supprimées en cascade avec elle)
 export const JOURNAL_MAX = 1000; // v2 : nombre d'entrées de journal chargées (les plus récentes) — le reste reste consultable dans Supabase
 const CHAMPS_TECHNIQUES = ["modifieLe", "modifiePar", "creeLe"]; // v2 : ignorés par le journal (comme dans le trigger SQL)
 

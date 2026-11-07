@@ -1,7 +1,7 @@
 // export-excel.js — génère le classeur Excel daté à partir du store (§4.8).
-// 6 onglets d'origine + v2 : « Affectations » (ventilation des fonds) et « Journal » (audit).
+// 6 onglets d'origine + v2 : « Répartition » (cotisations / sponsoring / mécénat) et « Journal » (audit).
 import { jourNumero, aujourdhui } from "./dates.js"; // conversion ISO → numéro de jour
-import { totalValide, totalDemande, formaterSiret, colonnePipeline, calculerVentilation, resumerAppareil } from "./selectors.js"; // totaux (v2 : + SIRET, ventilation, journal)
+import { totalValide, totalDemande, formaterSiret, colonnePipeline, calculerRepartition, resumerAppareil } from "./selectors.js"; // totaux (v2 : + SIRET, ventilation, journal)
 import { showToast } from "./utils.js"; // message
 import { LIBELLES_TABLES } from "./journal.js"; // v2 : « Fiche », « Échéance »… au lieu des noms techniques
 
@@ -66,12 +66,12 @@ export async function exporterExcel(store) {
   XLSX.utils.book_append_sheet(wb, feuille(XLSX, ["Partenaire", "Date", "Auteur", "Échange", "Automatique"],
     raw.echanges.slice().sort((a, b) => String(b.date).localeCompare(String(a.date))).map((x) => [nom.get(x.partenaireId) || "?", date(x.date), x.auteur || "", x.texte || "", oui(x.auto)])), "Historique"); // une ligne par échange
 
-  // 7) v2 — AFFECTATIONS : une ligne par affectation (saison en cours), puis le récapitulatif par catégorie
-  XLSX.utils.book_append_sheet(wb, feuille(XLSX, ["Partenaire", "Étape", "Saison", "Catégorie", "Montant", "Note"],
-    raw.affectations.slice().sort(parNom).map((a) => [nom.get(a.partenaireId) || "?", raw.partenaires.find((p) => p.id === a.partenaireId)?.etape || "", a.saison || "", a.categorie || "", euro(a.montant), a.note || ""])), "Affectations");
-  const vent = calculerVentilation(store.partenaires, reglages.categories); // mêmes cumuls que le tableau de bord
-  XLSX.utils.book_append_sheet(wb, feuille(XLSX, ["Catégorie", "Affecté (signés)", "Dont encaissé (prorata)", "Nombre de partenaires"],
-    [...vent.lignes.map((l) => [l.categorie, euro(l.affecte), euro(l.encaisse), l.nombre]), ["Reste à affecter", euro(vent.nonAffecte), "", ""], ["TOTAL SIGNÉ", euro(vent.totalSigne), euro(vent.totalEncaisse), ""]]), "Ventilation");
+  // 7) v2 — RÉPARTITION du montant signé : mêmes chiffres que le bloc « Score de la saison »
+  const rep = calculerRepartition(store.partenaires);
+  XLSX.utils.book_append_sheet(wb, feuille(XLSX, ["Catégorie", "Signé", "Part du signé", "Encaissé (prorata)", "Nombre de partenaires"],
+    [...rep.lignes.map((l) => [l.categorie, euro(l.signe), `${l.part} %`, euro(l.encaisse), l.nombre]),
+      ["TOTAL", euro(rep.totalSigne), "100 %", euro(rep.totalEncaisse), ""],
+      ["Apports en nature (valeur estimée, hors total)", euro(rep.nature.valeur), "", "", rep.nature.nombre]]), "Répartition");
 
   // 8) v2 — JOURNAL : entrées chargées (les plus récentes), avec compte et appareil
   const heure = (iso) => (iso ? { t: "n", v: new Date(iso).getTime() / 86400000 + 25569 - new Date(iso).getTimezoneOffset() / 1440, z: "dd/mm/yyyy hh:mm" } : ""); // horodatage → série Excel (heure locale)

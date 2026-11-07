@@ -17,7 +17,7 @@ import { icon } from "./icons.js"; // icônes
 const $ = (id) => document.getElementById(id); // raccourci
 
 // ---------- Libellés lisibles ----------
-export const LIBELLES_TABLES = { partenaires: "Fiche", contrats: "Contrat", echeances: "Échéance", contreparties: "Contrepartie", contacts: "Contact", echanges: "Historique", evenements: "Événement", presences: "Présence", affectations: "Affectation", reglages: "Réglages" };
+export const LIBELLES_TABLES = { partenaires: "Fiche", contrats: "Contrat", echeances: "Échéance", contreparties: "Contrepartie", contacts: "Contact", echanges: "Historique", evenements: "Événement", presences: "Présence", reglages: "Réglages" };
 const LIBELLES_ACTIONS = { INSERT: "Création", UPDATE: "Modification", DELETE: "Suppression" };
 const TONS_ACTIONS = { INSERT: "success", UPDATE: "info", DELETE: "danger" };
 const LIBELLES_CHAMPS = {
@@ -62,7 +62,6 @@ function sousObjet(e) {
     case "contacts": return d.nom || "(sans nom)";
     case "echeances": return [d.datePrevue ? formatDate(d.datePrevue) : "", d.montant != null ? formatEuro(d.montant) : ""].filter(Boolean).join(" · ");
     case "contreparties": return d.libelle || "";
-    case "affectations": return [d.categorie, d.montant != null ? formatEuro(d.montant) : ""].filter(Boolean).join(" · ");
     case "contrats": return d.saison ? `saison ${d.saison}` : "";
     case "echanges": return d.texte ? `« ${String(d.texte).slice(0, 60)} »` : "";
     case "evenements": return d.nom || "";

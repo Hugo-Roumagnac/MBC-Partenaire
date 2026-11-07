@@ -8,8 +8,6 @@ export const COTISATION_PAR_DEFAUT = 200; // §5 règle 4 : cotisation demandée
 // (ou s'est inscrit) mais n'existe pas encore dans ses contacts : choisir ce statut ouvre la saisie du contact.
 export const PRESENCE_CONTACT = "Contact à rajouter";
 export const PRESENCES = ["Oui", "En attente", "Non", PRESENCE_CONTACT];
-// v2 : catégories d'affectation des fonds proposées par défaut (modifiables dans « Réglages du club »).
-export const CATEGORIES_PAR_DEFAUT = ["Cotisations", "Sponsoring", "Mécénat", "Équipement", "Événementiel", "Déplacements", "Formation jeunes", "Fonctionnement"];
 
 export const enCents = (euros) => Math.round((Number(euros) || 0) * 100); // euros → cents entiers (évite les flottants)
 export const enEuros = (cents) => cents / 100; // cents → euros
@@ -155,19 +153,23 @@ export function planifierEcheancier(vue, { montant, nombre, premierVersement }) 
 }
 
 // =============================================================================
-// v2 — PIPELINE : colonne « Encaissé »
+// v2 — PIPELINE : colonne « Non encaissé »
 // =============================================================================
-// « Encaissé » n'est PAS une étape enregistrée en base : c'est une colonne CALCULÉE.
-// Une fiche « Signé » dont toutes les échéances payées couvrent le total validé y passe
-// automatiquement ; si une échéance est décochée, elle revient dans « Signé ».
-// Avantages : aucune donnée en double, impossible d'avoir une carte « Encaissé » qui ne l'est pas,
-// et toutes les règles existantes qui testent etape === "Signé" restent justes.
+// « Non encaissé » n'est PAS une étape enregistrée en base : c'est une colonne CALCULÉE, placée
+// juste après « Signé ». Une fiche à l'étape « Signé » qui doit encore de l'argent (reste à encaisser > 0)
+// y est rangée automatiquement ; dès que ses échéances payées couvrent le total validé, elle revient
+// d'elle-même dans « Signé ». La colonne « Signé » ne montre donc que les partenaires SOLDÉS.
+// Avantages : aucune donnée en double, impossible d'avoir une carte mal rangée, et toutes les règles
+// existantes qui testent etape === "Signé" (score, KPI, CERFA, invitations…) restent justes.
 
-// Vrai si le partenaire est signé ET intégralement encaissé (comparaison en cents).
-export const estSolde = (v) => v.etape === "Signé" && enCents(totalValide(v)) > 0 && enCents(v.encaisse) >= enCents(totalValide(v));
+// Reste à encaisser d'un partenaire signé : total validé − déjà payé (jamais négatif).
+export const resteAEncaisser = (v) => (v.etape === "Signé" ? Math.max(0, enEuros(enCents(totalValide(v)) - enCents(v.encaisse))) : 0);
+
+// Vrai si le partenaire est signé ET n'a plus rien à payer (y compris un contrat à 0 €, ex. apport en nature).
+export const estSolde = (v) => v.etape === "Signé" && enCents(resteAEncaisser(v)) === 0;
 
 // Colonne du Kanban dans laquelle afficher une fiche.
-export const colonnePipeline = (v) => (estSolde(v) ? "Encaissé" : v.etape);
+export const colonnePipeline = (v) => (v.etape === "Signé" && !estSolde(v) ? "Non encaissé" : v.etape);
 
 // =============================================================================
 // v2 — SIRET
@@ -204,62 +206,43 @@ export function validerSiret(texte) {
 export const formaterSiret = (siret) => (String(siret || "").length === 14 ? `${siret.slice(0, 3)} ${siret.slice(3, 6)} ${siret.slice(6, 9)} ${siret.slice(9)}` : String(siret || ""));
 
 // =============================================================================
-// v2 — VENTILATION FINANCIÈRE : « où va l'argent »
+// v2 — RÉPARTITION DE L'ARGENT (tableau de bord, bloc « Score de la saison »)
 // =============================================================================
-// Chaque fiche signée peut répartir son total validé en lignes d'affectation (catégorie + montant).
-// Le tableau de bord cumule ces lignes par catégorie pour TOUS les partenaires signés.
-// « Encaissé » par catégorie = montant affecté × part déjà encaissée du partenaire (prorata) :
-// un partenaire qui a payé 50 % de son contrat a encaissé 50 % de chacune de ses affectations.
+// Calculée AUTOMATIQUEMENT à partir des contrats des partenaires signés, sans aucune saisie :
+//   • Cotisations = cotisation validée
+//   • Mécénat     = part « dont mécénat » (incluse dans le montant validé, plafonnée à celui-ci)
+//   • Sponsoring  = montant validé − part de mécénat
+// La somme des trois = le montant signé du score (totalValide de chaque signé).
+// « Encaissé » de chaque catégorie = au PRORATA des paiements du partenaire : s'il a payé 50 % de son
+// contrat, on compte 50 % de sa cotisation, 50 % de son mécénat… Le sponsoring absorbe les arrondis,
+// pour que les trois catégories retombent EXACTEMENT sur l'encaissé du partenaire.
+// Les apports en nature (valeur estimée) sont donnés à part : ils ne sont pas de l'argent encaissé.
+export const CATEGORIES_REPARTITION = ["Cotisations", "Sponsoring", "Mécénat"];
 
-// Total affecté d'une fiche (somme de ses lignes).
-export const totalAffecte = (v) => somme(v.affectations || [], (a) => a.montant);
-
-// Propose les lignes d'affectation « évidentes » déduites du contrat (bouton « Pré-remplir ») :
-// cotisation validée → Cotisations ; part de mécénat → Mécénat ; le reste du montant validé → Sponsoring.
-// Les catégories déjà présentes sur la fiche ne sont pas reproposées (pas de doublon).
-export function proposerAffectations(v) {
-  const deja = new Set((v.affectations || []).map((a) => a.categorie)); // catégories déjà utilisées
-  const mecenat = Math.min(Number(v.dontMecenat) || 0, Number(v.montantValide) || 0); // le mécénat est inclus dans le montant validé
-  return [
-    { categorie: "Cotisations", montant: Number(v.cotisationValidee) || 0 },
-    { categorie: "Mécénat", montant: mecenat },
-    { categorie: "Sponsoring", montant: enEuros(enCents(v.montantValide) - enCents(mecenat)) }
-  ].filter((l) => l.montant > 0 && !deja.has(l.categorie)); // ni montant nul, ni doublon
-}
-
-// Cumuls par catégorie. partenaires = vues (seuls les « Signé » comptent) ; categories = liste des réglages.
-export function calculerVentilation(partenaires, categories = CATEGORIES_PAR_DEFAUT) {
+export function calculerRepartition(partenaires) {
   const signes = partenaires.filter((v) => v.etape === "Signé"); // même règle que le score de saison
-  const parCategorie = new Map(categories.map((c) => [c, { categorie: c, affecteCents: 0, encaisseCents: 0, partenaires: [] }])); // ordre des réglages
+  const cumul = Object.fromEntries(CATEGORIES_REPARTITION.map((c) => [c, { signe: 0, encaisse: 0, nombre: 0 }])); // en cents
+  let natureCents = 0, natureNombre = 0; // apports en nature
   for (const v of signes) {
-    const total = enCents(totalValide(v)); // total validé du partenaire
-    const taux = total > 0 ? Math.min(1, enCents(v.encaisse) / total) : 0; // part déjà encaissée (0 → 1)
-    for (const a of v.affectations || []) {
-      if (!parCategorie.has(a.categorie)) parCategorie.set(a.categorie, { categorie: a.categorie, affecteCents: 0, encaisseCents: 0, partenaires: [], horsListe: true }); // catégorie retirée des réglages : on la garde visible
-      const ligne = parCategorie.get(a.categorie); // cumul de la catégorie
-      const cents = enCents(a.montant); // montant affecté
-      ligne.affecteCents += cents; // cumul affecté
-      ligne.encaisseCents += Math.round(cents * taux); // cumul encaissé (prorata)
-      ligne.partenaires.push({ id: v.id, nom: v.nom, montant: a.montant, note: a.note || "" }); // détail
-    }
+    const cot = enCents(v.cotisationValidee); // cotisation
+    const mec = Math.min(enCents(v.dontMecenat), enCents(v.montantValide)); // mécénat (inclus dans le montant validé)
+    const spo = enCents(v.montantValide) - mec; // sponsoring « pur »
+    const total = cot + mec + spo; // = totalValide en cents
+    const paye = Math.min(enCents(v.encaisse), total); // encaissé, plafonné au contrat (un trop-perçu ne se répartit pas)
+    const taux = total > 0 ? paye / total : 0; // part payée (0 → 1)
+    const encCot = Math.round(cot * taux), encMec = Math.round(mec * taux); // prorata
+    const parts = { Cotisations: [cot, encCot], Mécénat: [mec, encMec], Sponsoring: [spo, paye - encCot - encMec] }; // le sponsoring absorbe l'arrondi
+    for (const [c, [s, e]] of Object.entries(parts)) { cumul[c].signe += s; cumul[c].encaisse += e; if (s > 0) cumul[c].nombre++; } // cumuls
+    const nature = enCents(v.contrat?.natureValeur ?? v.natureValeur); // valeur des apports en nature
+    if (nature > 0) { natureCents += nature; natureNombre++; }
   }
-  const totalSigne = somme(signes, totalValide); // base de comparaison
-  const lignes = [...parCategorie.values()].map((l) => ({
-    categorie: l.categorie, horsListe: !!l.horsListe,
-    affecte: enEuros(l.affecteCents), encaisse: enEuros(l.encaisseCents), // euros
-    nombre: new Set(l.partenaires.map((p) => p.id)).size, // nombre de partenaires distincts
-    partenaires: l.partenaires.sort((a, b) => b.montant - a.montant) // plus gros d'abord
-  }));
-  const totalAffecteCents = lignes.reduce((t, l) => t + enCents(l.affecte), 0); // somme de toutes les catégories
+  const lignes = CATEGORIES_REPARTITION.map((c) => ({ categorie: c, signe: enEuros(cumul[c].signe), encaisse: enEuros(cumul[c].encaisse), nombre: cumul[c].nombre })); // euros
+  const totalSigne = enEuros(lignes.reduce((t, l) => t + enCents(l.signe), 0)); // = score.signe
+  const totalEncaisse = enEuros(lignes.reduce((t, l) => t + enCents(l.encaisse), 0)); // encaissé réparti (contrats signés)
   return {
-    lignes, // une ligne par catégorie (même vide, pour voir les catégories disponibles)
-    totalSigne, // total validé des signés
-    totalAffecte: enEuros(totalAffecteCents), // total réparti
-    totalEncaisse: enEuros(lignes.reduce((t, l) => t + enCents(l.encaisse), 0)), // encaissé réparti
-    nonAffecte: enEuros(Math.max(0, enCents(totalSigne) - totalAffecteCents)), // reste à répartir (jamais négatif)
-    depassement: enEuros(Math.max(0, totalAffecteCents - enCents(totalSigne))), // affecté au-delà du signé (erreur de saisie)
-    pctAffecte: totalSigne > 0 ? Math.min(100, Math.round((enEuros(totalAffecteCents) / totalSigne) * 100)) : 0, // % du signé réparti
-    aVentiler: signes.filter((v) => enCents(totalAffecte(v)) !== enCents(totalValide(v))).length // fiches dont la ventilation ≠ total validé
+    lignes: lignes.map((l) => ({ ...l, part: totalSigne > 0 ? Math.round((l.signe / totalSigne) * 100) : 0, pctEncaisse: l.signe > 0 ? Math.round((l.encaisse / l.signe) * 100) : 0 })), // + parts en %
+    totalSigne, totalEncaisse,
+    nature: { valeur: enEuros(natureCents), nombre: natureNombre } // à titre indicatif
   };
 }
 

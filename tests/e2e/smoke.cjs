@@ -130,11 +130,12 @@ const URL = BASE + "app.html";
   // ===========================================================================
   // v2 — NOUVELLES FONCTIONNALITÉS
   // ===========================================================================
-  console.log("v2 — Pipeline : colonne « Encaissé » juste après « Signé »...");
+  console.log("v2 — Pipeline : « Signé » (soldés) puis « Non encaissé » (reste dû)...");
   await A.goto(URL + "#/pipeline");
   const colonnes = await A.$$eval(".kanban__col", (cs) => cs.map((c) => c.dataset.stage));
-  assert.equal(colonnes[colonnes.indexOf("Signé") + 1], "Encaissé", "La colonne Encaissé doit suivre Signé");
-  assert.ok(await A.locator('.kanban__col[data-stage="Encaissé"] .pcard').count() > 0, "Les signés soldés doivent apparaître dans Encaissé");
+  assert.equal(colonnes[colonnes.indexOf("Signé") + 1], "Non encaissé", "La colonne Non encaissé doit suivre Signé");
+  assert.ok(await A.locator('.kanban__col[data-stage="Signé"] [data-partner-id="harmonie"]').count() === 1, "Un signé soldé reste dans Signé");
+  assert.ok(await A.locator('.kanban__col[data-stage="Non encaissé"] .pcard__reste').count() > 0, "Les signés avec un reste dû sont dans Non encaissé");
 
   console.log("v2 — SIRET : refus d'un numéro invalide, enregistrement d'un valide depuis la liste...");
   await A.goto(URL + "#/partenaires");
@@ -157,21 +158,12 @@ const URL = BASE + "app.html";
   await B.goto(URL + "#/partenaires");
   await B.waitForSelector('tr[data-partner-id="entreprise-test-e2e"] .plogo--img img', { timeout: 4000 }); // temps réel inter-onglets
 
-  console.log("v2 — Affectation des fonds : ajout d'une ligne et cumul au tableau de bord...");
+  console.log("v2 — Répartition automatique dans le Score de la saison...");
   await A.goto(URL + "#/dashboard");
-  const avantVent = await A.textContent("#vent-summary");
-  await A.goto(URL + "#/partenaires?fiche=harmonie");
-  await A.waitForSelector("#fiche-partenaire.is-open");
-  await A.locator("summary", { hasText: "Affectation des fonds" }).click();
-  const nbAff = await A.locator("#affect-tbody tr [data-field=categorie]").count();
-  await A.click("[data-action=add-affect]");
-  await A.waitForFunction((n) => document.querySelectorAll("#affect-tbody tr [data-field=categorie]").length === n + 1, nbAff);
-  const montant = A.locator("#affect-tbody [data-field=montant]").last();
-  await montant.fill("150"); await montant.press("Tab");
-  await A.waitForSelector("#toast.toast--visible");
-  await A.keyboard.press("Escape");
-  await A.goto(URL + "#/dashboard");
-  assert.notEqual(await A.textContent("#vent-summary"), avantVent, "Les totaux par catégorie doivent suivre la saisie");
+  assert.equal(await A.locator("#repart-list .repart__row").count(), 3, "Cotisations, Sponsoring, Mécénat");
+  const somme = await A.$$eval("#repart-list .repart__val strong", (els) => els.reduce((t, e) => t + Number(e.textContent.replace(/[^0-9,]/g, "").replace(",", ".")), 0));
+  const signe = Number((await A.textContent("#score-signed")).replace(/[^0-9,]/g, "").replace(",", "."));
+  assert.equal(somme, signe, "La répartition doit retomber exactement sur le montant signé");
 
   console.log("v2 — Événements : « Contact à rajouter » ouvre la fiche contact...");
   await A.goto(URL + "#/evenements");

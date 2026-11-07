@@ -141,6 +141,19 @@
               <div class="score__fig score__fig--info kpi"><span class="kpi__label">En négociation</span><span id="score-negotiation" class="kpi__value">—</span></div>
               <div class="score__fig kpi"><span class="kpi__label">Reste à trouver</span><span id="score-remaining" class="kpi__value">—</span></div>
             </div>
+
+            <!-- v2 : RÉPARTITION DE L'ARGENT — calculée automatiquement à partir des contrats signés
+                 (cotisation validée, part de mécénat, reste du montant validé = sponsoring).
+                 Aucune saisie : calcul selectors.calculerRepartition, rendu dashboard.js (renderRepartition). -->
+            <div class="repart" aria-labelledby="h-repart">
+              <div class="repart__head">
+                <h4 id="h-repart" class="score__main-label">Répartition du montant signé</h4>
+                <span class="repart__sub" id="repart-sub"></span>
+              </div>
+              <div class="repart__bar" id="repart-bar" role="img"></div>
+              <div class="repart__list" id="repart-list"></div>
+              <p class="repart__note" id="repart-note" hidden></p>
+            </div>
           </article>
 
           <!-- ---- 4 indicateurs ---- -->
@@ -166,19 +179,6 @@
               <span id="kpi-delivered-sub" class="kpi__sub"></span>
             </article>
           </div>
-
-          <!-- ---- v2 : AFFECTATION DES FONDS — « où va l'argent » ----
-               Cumuls par catégorie des lignes d'affectation saisies dans les fiches des partenaires SIGNÉS.
-               Calcul : selectors.calculerVentilation ; rendu : dashboard.js (renderVentilation). -->
-          <article class="card mt-4" aria-labelledby="h-ventilation" id="ventilation">
-            <div class="card__head">
-              <h3 id="h-ventilation" class="card__title"><svg class="icon"><use href="#i-wallet"/></svg>Affectation des fonds</h3>
-              <span class="card__sub" id="vent-sub">—</span>
-            </div>
-            <div class="vent-summary" id="vent-summary"></div>
-            <div class="vent-legend progress__legend"><span><span class="legend-dot legend-dot--signed"></span>Affecté</span><span><span class="legend-dot legend-dot--cashed"></span>dont encaissé (au prorata des paiements)</span></div>
-            <div id="vent-list" class="vent-list"></div>
-          </article>
 
           <div class="grid grid--dash mt-4">
             <!-- ---- À faire ---- -->
@@ -245,14 +245,6 @@
                   <input id="catalog-new" type="text" placeholder="Nouvelle contrepartie" class="input--sm">
                   <button type="button" class="btn btn--small" data-add-tag="catalogue">Ajouter</button>
                 </div>
-                <!-- v2 : catégories proposées dans « Affectation des fonds » (retirer une catégorie ne supprime pas les montants déjà saisis) -->
-                <span class="field__label mt-4">Catégories d'affectation des fonds (<span id="categories-count">0</span>)</span>
-                <div class="tags-input" id="categories-tags"></div>
-                <div class="inline-add">
-                  <label for="category-new" class="sr-only">Ajouter une catégorie d'affectation</label>
-                  <input id="category-new" type="text" placeholder="Ex. : Stages d'été" class="input--sm">
-                  <button type="button" class="btn btn--small" data-add-tag="categories">Ajouter</button>
-                </div>
               </div>
             </form>
           </article>
@@ -265,7 +257,7 @@
           <div class="screen__head">
             <div>
               <h2 id="h-pipeline" class="screen__title">Pipeline</h2>
-              <p class="screen__sub">Glissez une carte dans une autre colonne pour changer son étape · <span id="pipeline-visible-count">—</span> · archivés masqués · « Encaissé » se remplit automatiquement quand toutes les échéances d'un signé sont payées</p>
+              <p class="screen__sub">Glissez une carte dans une autre colonne pour changer son étape · <span id="pipeline-visible-count">—</span> · archivés masqués · « Signé » = partenaires soldés ; ceux qui doivent encore un paiement sont rangés automatiquement dans « Non encaissé »</p>
             </div>
             <div class="screen__actions">
               <button type="button" class="btn btn--accent" data-quick="new-partner"><svg class="icon icon--sm"><use href="#i-plus"/></svg>Nouveau partenaire</button>
@@ -457,7 +449,7 @@
               <label for="journal-table" class="sr-only">Élément</label>
               <select id="journal-table" name="table">
                 <option value="">Tous les éléments</option><option value="partenaires">Fiches</option><option value="contrats">Contrats</option><option value="echeances">Échéances</option>
-                <option value="affectations">Affectations</option><option value="contacts">Contacts</option><option value="contreparties">Contreparties</option>
+                <option value="contacts">Contacts</option><option value="contreparties">Contreparties</option>
                 <option value="evenements">Événements</option><option value="presences">Présences</option><option value="echanges">Historique</option><option value="reglages">Réglages</option>
               </select>
             </div>
@@ -589,25 +581,6 @@
               <span>Total demandé : <strong id="c-total-asked">—</strong></span>
               <span>Saison <span data-bind="saison-prec"></span> : <strong id="c-prev">—</strong></span>
             </p>
-          </div>
-        </details>
-
-        <!-- v2 : AFFECTATION DES FONDS — répartit le total validé du partenaire par catégorie.
-             Les totaux cumulés par catégorie sont affichés sur le tableau de bord. -->
-        <details class="section" id="section-affectations">
-          <summary><svg class="icon icon--sm"><use href="#i-target"/></svg>Affectation des fonds <span class="section__count" id="count-affect"></span></summary>
-          <div class="section__body">
-            <div class="table-wrap">
-              <table class="table schedule-table">
-                <thead><tr><th scope="col">Catégorie</th><th scope="col" class="num">Montant</th><th scope="col">Note</th><th scope="col"><span class="sr-only">Supprimer</span></th></tr></thead>
-                <tbody id="affect-tbody"></tbody>
-              </table>
-            </div>
-            <p class="contract-total" id="affect-total"></p>
-            <div class="inline-add" style="flex-wrap: wrap; margin-top: var(--space-3)">
-              <button type="button" class="btn btn--small" data-action="add-affect"><svg class="icon icon--sm"><use href="#i-plus"/></svg>Ajouter une ligne</button>
-              <button type="button" class="btn btn--small btn--ghost" data-action="prefill-affect" title="Cotisation → Cotisations, mécénat → Mécénat, reste → Sponsoring"><svg class="icon icon--sm"><use href="#i-sparkle"/></svg>Pré-remplir depuis le contrat</button>
-            </div>
           </div>
         </details>
 

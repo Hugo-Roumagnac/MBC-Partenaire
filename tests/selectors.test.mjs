@@ -2,7 +2,7 @@
 import test from "node:test"; // lanceur de tests intégré à Node
 import assert from "node:assert/strict"; // assertions strictes
 import { repartirCents, planifierEcheancier, calculerTableauDeBord, enRetard, cerfaAEmettre } from "../front-end/js/selectors.js"; // fonctions testées
-import { validerSiret, formaterSiret, estSolde, colonnePipeline, calculerVentilation, proposerAffectations, construireAFaire, resumerAppareil, PRESENCES } from "../front-end/js/selectors.js"; // v2
+import { validerSiret, formaterSiret, estSolde, colonnePipeline, resteAEncaisser, calculerRepartition, construireAFaire, resumerAppareil, PRESENCES } from "../front-end/js/selectors.js"; // v2
 import { ajouterMois } from "../front-end/js/dates.js"; // helper de dates
 import { CATALOGUE_CONTREPARTIES } from "../front-end/js/mock-seed.js"; // catalogue officiel du §3 du PDF
 
@@ -68,32 +68,30 @@ test("SIRET : 14 chiffres, espaces tolérés, clé de Luhn vérifiée", () => {
 
 const vue = (o) => ({ id: "x", nom: "X", etape: "Signé", montantValide: 1000, cotisationValidee: 200, montantDemande: 0, cotisationDemandee: 0, dontMecenat: 0, encaisse: 0, montantPrecedent: 0, contrepartiesLivrees: 0, contrepartiesTotal: 0, echeances: [], affectations: [], ...o }); // fabrique de vues
 
-test("pipeline : un signé intégralement encaissé passe dans la colonne « Encaissé »", () => {
-  assert.equal(colonnePipeline(vue({ encaisse: 600 })), "Signé"); // encaissement partiel
-  assert.equal(colonnePipeline(vue({ encaisse: 1200 })), "Encaissé"); // 1000 + 200 encaissés
-  assert.equal(estSolde(vue({ montantValide: 0, cotisationValidee: 0, encaisse: 0 })), false); // rien à encaisser ≠ encaissé
-  assert.equal(colonnePipeline(vue({ etape: "Négociation", encaisse: 5000 })), "Négociation"); // seule une fiche signée peut être « Encaissé »
+test("pipeline : « Signé » = soldés, « Non encaissé » = signés avec un reste dû", () => {
+  assert.equal(colonnePipeline(vue({ encaisse: 600 })), "Non encaissé"); // 1200 € validés, 600 € payés
+  assert.equal(resteAEncaisser(vue({ encaisse: 600 })), 600); // reste dû affiché sur la carte
+  assert.equal(colonnePipeline(vue({ encaisse: 1200 })), "Signé"); // tout payé → reste dans « Signé »
+  assert.equal(estSolde(vue({ montantValide: 0, cotisationValidee: 0 })), true); // contrat à 0 € (apport en nature) : rien à encaisser
+  assert.equal(colonnePipeline(vue({ etape: "Négociation", encaisse: 0 })), "Négociation"); // seule l'étape « Signé » est concernée
 });
 
-test("ventilation : cumuls par catégorie, prorata encaissé, non affecté", () => {
-  const a = vue({ id: "a", nom: "A", encaisse: 600, affectations: [{ categorie: "Cotisations", montant: 200 }, { categorie: "Équipement", montant: 1000 }] }); // payé à 50 %
-  const b = vue({ id: "b", nom: "B", encaisse: 1200, affectations: [{ categorie: "Cotisations", montant: 200 }] }); // payé à 100 %, 1000 € non affectés
-  const c = vue({ id: "c", nom: "C", etape: "Négociation", affectations: [{ categorie: "Cotisations", montant: 999 }] }); // non signé : ignoré
-  const t = calculerVentilation([a, b, c], ["Cotisations", "Équipement", "Événementiel"]);
-  const cot = t.lignes.find((l) => l.categorie === "Cotisations");
-  assert.equal(cot.affecte, 400); // 200 (A) + 200 (B) — le 999 de C ne compte pas
-  assert.equal(cot.encaisse, 300); // 100 (50 % de 200) + 200 (100 % de 200)
-  assert.equal(cot.nombre, 2); // deux partenaires
-  assert.equal(t.lignes.find((l) => l.categorie === "Événementiel").affecte, 0); // catégorie vide mais listée
-  assert.equal(t.totalSigne, 2400); // 2 × 1200
-  assert.equal(t.nonAffecte, 1000); // 2400 − 1400
-  assert.equal(t.aVentiler, 1); // B n'est pas entièrement ventilé
-});
-
-test("ventilation : pré-remplissage depuis le contrat, sans doublon", () => {
-  const v = vue({ montantValide: 2500, cotisationValidee: 200, dontMecenat: 2000 }); // cas « MyJob »
-  assert.deepEqual(proposerAffectations(v), [{ categorie: "Cotisations", montant: 200 }, { categorie: "Mécénat", montant: 2000 }, { categorie: "Sponsoring", montant: 500 }]);
-  assert.deepEqual(proposerAffectations({ ...v, affectations: [{ categorie: "Mécénat", montant: 2000 }] }).map((l) => l.categorie), ["Cotisations", "Sponsoring"]); // Mécénat déjà présent
+test("répartition automatique : cotisations / sponsoring / mécénat, encaissé au prorata", () => {
+  const a = vue({ id: "a", montantValide: 2500, cotisationValidee: 200, dontMecenat: 2000, encaisse: 1350 }); // cas « MyJob », payé à 50 %
+  const b = vue({ id: "b", montantValide: 1000, cotisationValidee: 200, encaisse: 1200 }); // payé à 100 %
+  const c = vue({ id: "c", etape: "Négociation", montantValide: 9999, cotisationValidee: 200 }); // non signé : ignoré
+  const n = vue({ id: "n", montantValide: 0, cotisationValidee: 0, contrat: { natureValeur: 800 } }); // apport en nature
+  const r = calculerRepartition([a, b, c, n]);
+  const l = Object.fromEntries(r.lignes.map((x) => [x.categorie, x]));
+  assert.equal(l.Cotisations.signe, 400); // 200 + 200
+  assert.equal(l.Mécénat.signe, 2000); // part de mécénat de A
+  assert.equal(l.Sponsoring.signe, 1500); // (2500 − 2000) + 1000
+  assert.equal(r.totalSigne, 3900); // = 2700 + 1200, le signé du score
+  assert.equal(l.Cotisations.encaisse, 300); // 100 (50 % de 200) + 200
+  assert.equal(l.Mécénat.encaisse, 1000); // 50 % de 2000
+  assert.equal(r.totalEncaisse, 2550); // 1350 + 1200 : les catégories retombent exactement sur l'encaissé
+  assert.equal(r.nature.valeur, 800); // apports en nature à part
+  assert.equal(l.Cotisations.nombre, 2);
 });
 
 test("événements : « Contact à rajouter » existe et alimente la liste « À faire »", () => {

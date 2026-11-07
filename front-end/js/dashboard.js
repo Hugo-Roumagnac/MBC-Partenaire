@@ -1,6 +1,6 @@
 // dashboard.js — écran « Tableau de bord » (§4.2). Affichage uniquement : les calculs sont dans selectors.js.
 import { store, ecrire } from "./store.js";
-import { calculerTableauDeBord, calculerVentilation } from "./selectors.js"; // v2 : + ventilation des fonds
+import { calculerTableauDeBord, calculerRepartition } from "./selectors.js"; // v2 : + répartition automatique de l'argent
 import { aujourdhui } from "./dates.js";
 import { formatEuro, formatDate, escapeHtml, showToast, stageSlug } from "./utils.js";
 import { ficheHref } from "./router.js";
@@ -38,7 +38,7 @@ export function initDashboard() {
     enregistrerReglages({ [cle]: [...liste, v] });
   };
   document.querySelectorAll("[data-add-tag]").forEach((b) => b.addEventListener("click", () => ajouterTag(b.dataset.addTag, b.previousElementSibling)));
-  [["owner-new", "responsables"], ["catalog-new", "catalogue"], ["category-new", "categories"]].forEach(([id, cle]) => $(id)?.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); ajouterTag(cle, e.target); } }));
+  [["owner-new", "responsables"], ["catalog-new", "catalogue"]].forEach(([id, cle]) => $(id)?.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); ajouterTag(cle, e.target); } }));
   $("settings-form")?.addEventListener("click", (e) => {
     const b = e.target.closest("[data-remove-tag]");
     if (!b) return;
@@ -81,7 +81,7 @@ export function renderDashboard() {
   texte("kpi-delivered", `${kpis.contreparties.livrees} / ${kpis.contreparties.total}`);
   texte("kpi-delivered-sub", `Mécénat ${formatEuro(kpis.contreparties.mecenat)} · CERFA à émettre : ${kpis.contreparties.cerfa}`);
 
-  renderVentilation(); // v2 : affectation des fonds
+  renderRepartition(score.encaisse); // v2 : répartition Cotisations / Sponsoring / Mécénat
 
   // ----- À faire : chaque ligne ouvre la fiche -----
   texte("todo-count", String(t.todo.length));
@@ -123,39 +123,41 @@ export function renderDashboard() {
   const o = $("owners-tags"); if (o) o.innerHTML = tags("responsables");
   const c = $("catalog-tags"); if (c) c.innerHTML = tags("catalogue");
   texte("catalog-count", String((store.reglages.catalogue || []).length));
-  const cat = $("categories-tags"); if (cat) cat.innerHTML = tags("categories"); // v2 : catégories d'affectation
-  texte("categories-count", String((store.reglages.categories || []).length));
 }
 
 // =============================================================================
-// v2 — AFFECTATION DES FONDS (« où va l'argent »)
+// v2 — RÉPARTITION DU MONTANT SIGNÉ (bloc « Score de la saison »)
 // =============================================================================
-// Pour chaque catégorie : total affecté (cumul de toutes les fiches signées), part encaissée au prorata,
-// nombre de partenaires et, en dépliant, le détail par partenaire. Exemple : trois partenaires affectent
-// chacun 200 € en « Cotisations » → la ligne Cotisations affiche 600 €.
-function renderVentilation() {
-  const v = calculerVentilation(store.partenaires, store.reglages.categories); // calcul pur (selectors.js)
-  const max = Math.max(1, ...v.lignes.map((l) => l.affecte)); // échelle des barres : la plus grosse catégorie = 100 %
-  texte("vent-sub", v.totalSigne ? `${v.pctAffecte} % du signé réparti${v.aVentiler ? ` · ${v.aVentiler} fiche${v.aVentiler > 1 ? "s" : ""} à ventiler` : ""}` : "Aucun partenaire signé");
+// Calculée à partir des contrats signés, sans saisie (règles détaillées dans selectors.calculerRepartition) :
+// une barre empilée montre la part de chaque catégorie dans le signé, puis une ligne par catégorie donne
+// le montant signé, sa part, l'encaissé (au prorata des paiements) et le nombre de partenaires.
+const COULEURS_REPARTITION = { Cotisations: "cotisations", Sponsoring: "sponsoring", Mécénat: "mecenat" }; // suffixes CSS (couleurs dans screens.css)
 
-  const resume = $("vent-summary");
-  if (resume) resume.innerHTML = [
-    ["Total signé", formatEuro(v.totalSigne), ""],
-    ["Affecté", formatEuro(v.totalAffecte), "success"],
-    ["dont encaissé", formatEuro(v.totalEncaisse), ""],
-    v.depassement ? ["Affecté en trop", formatEuro(v.depassement), "danger"] : ["Reste à affecter", formatEuro(v.nonAffecte), v.nonAffecte ? "warning" : ""]
-  ].map(([l, val, ton]) => `<div class="score__fig kpi ${ton ? `score__fig--${ton}` : ""}"><span class="kpi__label">${l}</span><span class="kpi__value">${val}</span></div>`).join("");
+function renderRepartition(encaisseScore) {
+  const r = calculerRepartition(store.partenaires); // calcul pur
+  const liste = $("repart-list"); if (!liste) return;
+  texte("repart-sub", r.totalSigne ? `${formatEuro(r.totalEncaisse)} encaissés sur ${formatEuro(r.totalSigne)}` : "Aucun partenaire signé");
 
-  const liste = $("vent-list"); if (!liste) return;
-  const ouvertes = new Set([...liste.querySelectorAll("details[open]")].map((d) => d.dataset.cat)); // garde les catégories dépliées d'un rendu à l'autre
-  const lignes = v.lignes.filter((l) => l.affecte > 0 || !l.horsListe); // catégories des réglages (même vides) + catégories retirées encore utilisées
-  liste.innerHTML = lignes.map((l) => `
-    <details class="vent-row ${l.affecte ? "" : "vent-row--vide"}" data-cat="${escapeHtml(l.categorie)}" ${ouvertes.has(l.categorie) ? "open" : ""}>
-      <summary>
-        <span class="vent-row__label">${escapeHtml(l.categorie)}${l.horsListe ? ' <span class="badge" title="Catégorie retirée des réglages mais encore utilisée">hors liste</span>' : ""}</span>
-        <span class="vent-row__bar" aria-hidden="true"><span class="vent-row__fill" style="--value:${Math.round((l.affecte / max) * 100)}"></span><span class="vent-row__cash" style="--value:${Math.round((l.encaisse / max) * 100)}"></span></span>
-        <span class="vent-row__nums"><strong>${formatEuro(l.affecte)}</strong><span>${l.affecte ? `${formatEuro(l.encaisse)} encaissés · ${l.nombre} partenaire${l.nombre > 1 ? "s" : ""}` : "—"}</span></span>
-      </summary>
-      ${l.partenaires.length ? `<ul class="vent-detail">${l.partenaires.map((p) => `<li><a href="${ficheHref(p.id)}">${escapeHtml(p.nom)}</a>${p.note ? ` <span class="muted">· ${escapeHtml(p.note)}</span>` : ""}<strong>${formatEuro(p.montant)}</strong></li>`).join("")}</ul>` : `<p class="faint vent-detail">Aucun montant affecté à cette catégorie.</p>`}
-    </details>`).join("") || `<div class="empty">${icon("wallet")}Ajoutez des catégories dans les réglages du club.</div>`;
+  // Barre empilée : chaque segment = part de la catégorie dans le signé ; la partie claire = déjà encaissée
+  const barre = $("repart-bar");
+  barre.setAttribute("aria-label", r.lignes.map((l) => `${l.categorie} ${l.part} %`).join(", "));
+  barre.innerHTML = r.lignes.filter((l) => l.signe > 0).map((l) => `<span class="repart__seg repart__seg--${COULEURS_REPARTITION[l.categorie]}" style="--part:${l.signe}; --enc:${l.pctEncaisse}" title="${escapeHtml(l.categorie)} : ${formatEuro(l.signe)} (${l.part} %)"></span>`).join("");
+
+  // Une ligne par catégorie
+  liste.innerHTML = r.lignes.map((l) => `
+    <div class="repart__row">
+      <span class="repart__label"><span class="repart__dot repart__dot--${COULEURS_REPARTITION[l.categorie]}"></span>${escapeHtml(l.categorie)}</span>
+      <span class="repart__val"><strong>${formatEuro(l.signe)}</strong><span>${l.part} % du signé · ${l.nombre} partenaire${l.nombre > 1 ? "s" : ""}</span></span>
+      <span class="repart__enc">
+        <span class="meter__track"><span class="meter__fill" style="--value:${l.pctEncaisse}"></span></span>
+        <span>${formatEuro(l.encaisse)} encaissés (${l.pctEncaisse} %)</span>
+      </span>
+    </div>`).join("");
+
+  // Notes : apports en nature (hors argent) et éventuel encaissé hors contrats signés
+  const notes = [];
+  if (r.nature.valeur > 0) notes.push(`+ ${formatEuro(r.nature.valeur)} d'apports en nature (${r.nature.nombre} partenaire${r.nature.nombre > 1 ? "s" : ""}, valeur estimée, non comptée dans le signé).`);
+  const ecart = Math.round((encaisseScore - r.totalEncaisse) * 100) / 100; // l'encaissé du score compte TOUTES les échéances payées de la saison
+  if (ecart > 0) notes.push(`${formatEuro(ecart)} encaissés hors contrats signés (fiches pas encore à l'étape « Signé » ou paiements au-delà du montant validé).`);
+  const note = $("repart-note"); note.hidden = !notes.length; note.textContent = notes.join(" ");
 }

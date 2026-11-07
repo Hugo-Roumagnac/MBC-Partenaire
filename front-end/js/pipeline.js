@@ -17,7 +17,7 @@ import {
 } from "./utils.js";
 import { icon } from "./icons.js";
 import { naviguer } from "./router.js";
-import { colonnePipeline, totalValide } from "./selectors.js"; // v2 : colonne calculée « Encaissé »
+import { colonnePipeline, totalValide, resteAEncaisser } from "./selectors.js"; // v2 : colonne calculée « Non encaissé »
 import { logoHtml } from "./logos.js"; // v2 : logo (ou monogramme) sur chaque carte
 
 // Filtre sélectionné pour le responsable (vide = tous)
@@ -100,11 +100,12 @@ export function renderPipeline() {
   // Génération du balisage HTML de chaque colonne
   root.innerHTML = colonnes.map((col) => {
     // Filtrage des fiches appartenant à cette colonne.
-    // v2 : on passe par colonnePipeline() et non plus par p.etape : une fiche « Signé » intégralement
-    // encaissée est rangée dans la colonne calculée « Encaissé » (voir selectors.js).
+    // v2 : on passe par colonnePipeline() et non plus par p.etape : une fiche « Signé » qui doit encore
+    // de l'argent est rangée dans la colonne calculée « Non encaissé » (voir selectors.js) ;
+    // la colonne « Signé » ne garde que les partenaires soldés.
     const cards = partners.filter((p) => colonnePipeline(p) === col.id);
-    // Somme cumulée des montants de la colonne : l'encaissé pour « Encaissé », sinon le montant affiché
-    const total = cards.reduce((sum, p) => sum + (col.id === "Encaissé" ? Number(p.encaisse) || 0 : montantAffiche(p)), 0);
+    // Somme cumulée des montants de la colonne : le RESTE DÛ pour « Non encaissé », sinon le montant affiché
+    const total = cards.reduce((sum, p) => sum + (col.id === "Non encaissé" ? resteAEncaisser(p) : montantAffiche(p)), 0);
     // Slug CSS de la colonne
     const slug = col.slug || stageSlug(col.id);
 
@@ -116,10 +117,10 @@ export function renderPipeline() {
             <h3 class="kanban__title">${escapeHtml(col.id)} <span class="kanban__count">${cards.length}</span></h3>
             ${col.description ? `<p class="kanban__hint">${escapeHtml(col.description)}</p>` : ""}
           </div>
-          <span class="kanban__total">${formatEuro(total)}</span>
+          <span class="kanban__total"${col.derivee ? ' title="Total restant à encaisser"' : ""}>${formatEuro(total)}</span>
         </header>
         <div class="kanban__cards" data-stage="${escapeHtml(col.id)}">
-          ${cards.length ? cards.map(cardHtml).join("") : `<p class="kanban__empty">${col.derivee ? "Les signés dont toutes les échéances sont payées apparaissent ici" : "Déposez une carte ici"}</p>`}
+          ${cards.length ? cards.map(cardHtml).join("") : `<p class="kanban__empty">${col.derivee ? "Aucun paiement en attente : tous les signés ont tout réglé" : col.id === "Signé" ? "Les signés apparaissent ici une fois tout encaissé" : "Déposez une carte ici"}</p>`}
         </div>
       </section>`;
   }).join("");
@@ -144,10 +145,10 @@ function cardHtml(p) {
         p.prochaineActionDate ? ` · <span class="${due}">${formatDate(p.prochaineActionDate)}${due === "due--late" ? " (en retard)" : ""}</span>` : ""}</span></div>`
     : (["RDV", "Proposition", "Négociation"].includes(p.etape) ? `<div class="pcard__action"><span class="due--late">Aucune prochaine action</span></div>` : "");
 
-  // v2 : progression de l'encaissement sur les cartes signées (le passage à 100 % les déplace dans « Encaissé »)
-  const tv = totalValide(p);
+  // v2 : sur les cartes « Non encaissé », reste dû + progression des paiements (à 100 % la carte repasse dans « Signé »)
+  const tv = totalValide(p), reste = resteAEncaisser(p);
   const encaissement = p.etape === "Signé" && tv > 0
-    ? `<span class="pcard__cash" title="Encaissé ${formatEuro(p.encaisse)} sur ${formatEuro(tv)}"><span class="meter__track"><span class="meter__fill" style="--value:${Math.min(100, Math.round((p.encaisse / tv) * 100))}"></span></span><small>${p.solde ? "Soldé" : `${formatEuro(p.encaisse)} encaissés`}</small></span>`
+    ? `<span class="pcard__cash" title="Encaissé ${formatEuro(p.encaisse)} sur ${formatEuro(tv)}"><span class="meter__track"><span class="meter__fill" style="--value:${Math.min(100, Math.round((p.encaisse / tv) * 100))}"></span></span><small>${p.solde ? "Soldé" : `<strong class="pcard__reste">Reste ${formatEuro(reste)}</strong> · ${formatEuro(p.encaisse)} encaissés`}</small></span>`
     : "";
 
   return `
@@ -228,11 +229,15 @@ function bindDragAndDrop(root) {
       const id = e.dataTransfer.getData("text/plain") || draggedId;
       // Récupère l'étape de destination associée à la colonne
       const stage = col.dataset.stage;
-      // v2 : « Encaissé » n'est pas une étape enregistrée. Y déposer une carte la passe en « Signé » ;
-      // elle rejoindra « Encaissé » d'elle-même quand toutes ses échéances seront cochées payées.
-      if (id && col.dataset.derivee) {
+      // v2 : « Non encaissé » n'est pas une étape enregistrée. Déposer une carte sur « Signé » OU sur
+      // « Non encaissé » la passe à l'étape « Signé » ; c'est ensuite l'état de ses paiements qui
+      // décide de la colonne (tout payé → « Signé », reste dû → « Non encaissé »).
+      if (id && (col.dataset.derivee || stage === "Signé")) {
         changerEtape(id, "Signé")
-          .then(() => showToast(store.partenaires.find((p) => p.id === id)?.solde ? "Signé et soldé" : "Passé en « Signé » : cochez les échéances payées pour qu'il rejoigne « Encaissé »"))
+          .then(() => {
+            const v = store.partenaires.find((p) => p.id === id);
+            showToast(v?.solde ? "Signé et soldé" : `Signé : reste ${formatEuro(resteAEncaisser(v || {}))} à encaisser → colonne « Non encaissé »`);
+          })
           .catch(() => showToast("Échec du déplacement"));
         return;
       }

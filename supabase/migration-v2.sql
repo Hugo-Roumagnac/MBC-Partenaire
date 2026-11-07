@@ -2,7 +2,7 @@
 -- MBC Partenaires — MIGRATION v2 (à lancer UNE fois sur une base déjà en service)
 -- SQL Editor → New query → coller tout ce fichier → Run.
 -- Ne supprime ni ne modifie aucune donnée existante ; peut être relancé sans risque.
--- Ajoute : SIRET, logo, « Contact à rajouter », affectations, catégories,
+-- Ajoute : SIRET, logo, « Contact à rajouter »,
 --          journal d'audit (table + trigger), bucket de stockage « logos ».
 -- =============================================================================
 
@@ -15,20 +15,8 @@ alter table public.partenaires add  constraint partenaires_siret_check check (si
 alter table public.presences drop constraint if exists presences_presence_check;
 alter table public.presences add  constraint presences_presence_check check (presence in ('Oui','En attente','Non','Contact à rajouter'));
 
-alter table public.reglages add column if not exists categories text[] not null
-  default array['Cotisations','Sponsoring','Mécénat','Équipement','Événementiel','Déplacements','Formation jeunes','Fonctionnement'];
 
 -- ---------- 2. Nouvelles tables ----------
-create table if not exists public.affectations (
-  id            uuid primary key default gen_random_uuid(),
-  partenaire_id text not null references public.partenaires(id) on delete cascade,
-  saison        text not null,
-  categorie     text not null,
-  montant       numeric(12,2) not null default 0 check (montant >= 0),
-  note          text not null default '',
-  cree_le       timestamptz not null default now()
-);
-
 create table if not exists public.journal (
   id            bigint generated always as identity primary key,
   le            timestamptz not null default now(),
@@ -44,17 +32,10 @@ create table if not exists public.journal (
   champs        text[] not null default '{}'
 );
 
-create index if not exists affectations_partenaire_idx on public.affectations (partenaire_id);
 create index if not exists journal_le_idx              on public.journal (le desc);
 create index if not exists journal_partenaire_idx      on public.journal (partenaire_id, le desc);
 
 -- ---------- 3. Sécurité (RLS) ----------
-alter table public.affectations enable row level security;
-drop policy if exists "membres uniquement" on public.affectations;
-create policy "membres uniquement" on public.affectations for all to authenticated using (public.est_membre()) with check (public.est_membre());
-revoke all on public.affectations from anon;
-grant select, insert, update, delete on public.affectations to authenticated;
-
 -- Journal : lecture seule pour les membres ; seul le trigger y écrit
 alter table public.journal enable row level security;
 drop policy if exists "membres lisent" on public.journal;
@@ -111,17 +92,17 @@ revoke all on function public.journaliser() from public;
 do $$
 declare t text;
 begin
-  foreach t in array array['partenaires','contrats','echeances','contreparties','contacts','echanges','evenements','presences','affectations','reglages'] loop
+  foreach t in array array['partenaires','contrats','echeances','contreparties','contacts','echanges','evenements','presences','reglages'] loop
     execute format('drop trigger if exists journaliser on public.%I', t);
     execute format('create trigger journaliser after insert or update or delete on public.%I for each row execute function public.journaliser()', t);
   end loop;
 end $$;
 
--- ---------- 5. Temps réel pour les nouvelles tables ----------
+-- ---------- 5. Temps réel pour le journal ----------
 do $$
 declare t text;
 begin
-  foreach t in array array['affectations','journal'] loop
+  foreach t in array array['journal'] loop
     execute format('alter table public.%I replica identity full', t);
     if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t) then
       execute format('alter publication supabase_realtime add table public.%I', t);
@@ -143,7 +124,7 @@ create policy "logos : membres remplacent" on storage.objects for update to auth
 create policy "logos : membres suppriment" on storage.objects for delete to authenticated using (bucket_id = 'logos' and public.est_membre());
 
 -- ---------- Vérification : doit afficher 4 lignes « ok » ----------
-select 'ok' as etat, 'table affectations' as element from information_schema.tables where table_schema = 'public' and table_name = 'affectations'
-union all select 'ok', 'table journal' from information_schema.tables where table_schema = 'public' and table_name = 'journal'
+select 'ok' as etat, 'table journal' as element from information_schema.tables where table_schema = 'public' and table_name = 'journal'
+union all select 'ok', 'colonne logo' from information_schema.columns where table_schema = 'public' and table_name = 'partenaires' and column_name = 'logo'
 union all select 'ok', 'colonne siret' from information_schema.columns where table_schema = 'public' and table_name = 'partenaires' and column_name = 'siret'
 union all select 'ok', 'bucket logos' from storage.buckets where id = 'logos';

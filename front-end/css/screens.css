@@ -234,13 +234,13 @@
 .pcard__top .plogo { margin-top: 1px; }
 .pcard__top { justify-content: flex-start; }
 
-/* ---------- Pipeline : colonne calculée « Encaissé » ---------- */
-.kanban__col--encaisse { --stage-c: var(--stage-encaisse); }
+/* ---------- Pipeline : colonne calculée « Non encaissé » ---------- */
+.kanban__col--non-encaisse { --stage-c: var(--stage-non-encaisse); }
 .kanban__col--derivee .kanban__head { border-top-style: double; border-top-width: 4px; }
-.badge--encaisse { --stage-c: var(--stage-encaisse); background: color-mix(in srgb, var(--stage-c) 14%, transparent); color: color-mix(in srgb, var(--stage-c) 85%, var(--color-text)); }
+.badge--non-encaisse { --stage-c: var(--stage-non-encaisse); background: color-mix(in srgb, var(--stage-c) 14%, transparent); color: color-mix(in srgb, var(--stage-c) 85%, var(--color-text)); }
 .pcard__cash { display: grid; gap: 3px; }
 .pcard__cash small { font-size: var(--text-xs); color: var(--color-text-muted); }
-.kanban__col--encaisse .meter__fill { background: var(--stage-encaisse); }
+.pcard__reste { color: var(--color-warning); font-weight: 750; }
 
 /* ---------- SIRET (écran Partenaires) ---------- */
 .siret-btn { display: inline-flex; align-items: center; gap: 6px; padding: 3px 6px; margin: -3px -6px; border: 1px solid transparent; border-radius: var(--radius-sm); background: none; color: var(--color-text); font: inherit; font-variant-numeric: tabular-nums; cursor: pointer; white-space: nowrap; }
@@ -250,34 +250,32 @@
 .siret-btn--vide { color: var(--color-warning) !important; }
 @media (hover: none) { .siret-btn .icon { opacity: 1; } }
 
-/* ---------- Affectation des fonds (tableau de bord + fiche) ---------- */
-.vent-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
-@media (min-width: 760px) { .vent-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
-.score__fig--warning .kpi__value { color: var(--color-warning); }
-.score__fig--danger .kpi__value { color: var(--color-danger); }
-.vent-legend { margin: var(--space-3) 0 var(--space-2); }
-.vent-list { display: grid; }
-.vent-row { border-bottom: 1px solid var(--color-border); }
-.vent-row:last-child { border-bottom: 0; }
-.vent-row summary { display: grid; grid-template-columns: minmax(110px, 170px) minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 9px 4px; cursor: pointer; list-style: none; font-size: var(--text-sm); border-radius: var(--radius-sm); }
-.vent-row summary::-webkit-details-marker { display: none; }
-.vent-row summary:hover { background: var(--color-surface-alt); }
-.vent-row--vide summary { color: var(--color-text-faint); }
-.vent-row__label { font-weight: 650; overflow-wrap: anywhere; }
-.vent-row__bar { position: relative; height: 10px; border-radius: 5px; background: var(--color-surface-sunken); overflow: hidden; }
-.vent-row__fill, .vent-row__cash { position: absolute; left: 0; top: 0; bottom: 0; width: calc(var(--value, 0) * 1%); border-radius: 5px; transition: width 400ms; }
-.vent-row__fill { background: color-mix(in srgb, var(--color-success) 38%, transparent); }
-.vent-row__cash { background: var(--color-success); }
-.vent-row__nums { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; display: grid; }
-.vent-row__nums span { font-size: var(--text-xs); color: var(--color-text-muted); }
-.vent-detail { margin: 0 4px 10px; padding: 6px 10px; border-radius: var(--radius-md); background: var(--color-surface-alt); font-size: var(--text-sm); }
-.vent-detail li { display: flex; gap: 8px; justify-content: space-between; padding: 4px 0; }
-.vent-detail li a { flex: 1; min-width: 0; }
-@media (max-width: 559px) {
-  .vent-row summary { grid-template-columns: minmax(0, 1fr) auto; }
-  .vent-row__bar { grid-column: 1 / -1; grid-row: 2; }
+/* ---------- Répartition du montant signé (bloc « Score de la saison ») ---------- */
+.repart { display: grid; gap: var(--space-3); padding-top: var(--space-4); border-top: 1px solid var(--color-border); }
+.repart__head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; }
+.repart__sub { font-size: var(--text-sm); color: var(--color-text-muted); }
+.repart { --c-cotisations: var(--stage-rdv); --c-sponsoring: var(--color-accent); --c-mecenat: var(--stage-proposition); }
+.repart__bar { display: flex; gap: 3px; height: 14px; border-radius: 7px; overflow: hidden; background: var(--color-surface-sunken); }
+.repart__seg { position: relative; flex: var(--part) 1 0; min-width: 4px; background: color-mix(in srgb, var(--c) 40%, transparent); }
+.repart__seg::after { content: ""; position: absolute; inset: 0 auto 0 0; width: calc(var(--enc) * 1%); background: var(--c); } /* partie déjà encaissée */
+.repart__seg--cotisations, .repart__dot--cotisations, .repart__row:has(.repart__dot--cotisations) { --c: var(--c-cotisations); }
+.repart__seg--sponsoring, .repart__dot--sponsoring, .repart__row:has(.repart__dot--sponsoring) { --c: var(--c-sponsoring); }
+.repart__seg--mecenat, .repart__dot--mecenat, .repart__row:has(.repart__dot--mecenat) { --c: var(--c-mecenat); }
+.repart__list { display: grid; gap: var(--space-2); }
+.repart__row { display: grid; grid-template-columns: minmax(110px, 160px) minmax(0, 1fr) minmax(0, 1.2fr); align-items: center; gap: 12px; padding: 10px 14px; border-radius: var(--radius-md); background: var(--color-surface-alt); border: 1px solid var(--color-border); }
+.repart__label { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: var(--text-sm); }
+.repart__dot { width: 10px; height: 10px; border-radius: 3px; background: var(--c); flex: 0 0 auto; }
+.repart__val { display: grid; font-variant-numeric: tabular-nums; }
+.repart__val strong { font-size: var(--text-lg); font-weight: 800; }
+.repart__val span, .repart__enc > span:last-child { font-size: var(--text-xs); color: var(--color-text-muted); }
+.repart__enc { display: grid; gap: 4px; }
+.repart__row .meter__fill { background: var(--c); }
+.repart__note { font-size: var(--text-xs); color: var(--color-text-muted); }
+@media (max-width: 639px) {
+  .repart__row { grid-template-columns: minmax(0, 1fr) auto; }
+  .repart__enc { grid-column: 1 / -1; }
+  .repart__val { text-align: right; }
 }
-.contract-total--alerte { background: var(--color-warning-bg); color: var(--color-warning); }
 
 /* ---------- Événements : 4e indicateur « Contacts à rajouter » ---------- */
 .event-stats { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }

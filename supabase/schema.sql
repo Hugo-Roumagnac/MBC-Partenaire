@@ -9,8 +9,6 @@
 --   • partenaires.siret  : numéro SIRET (14 chiffres, clé de Luhn vérifiée côté front)
 --   • partenaires.logo   : adresse du logo (URL publique Supabase Storage) — voir §5
 --   • presences.presence : nouvelle valeur « Contact à rajouter »
---   • affectations       : ventilation des fonds par catégorie (où va l'argent)
---   • reglages.categories: liste des catégories d'affectation, modifiable à l'écran
 --   • journal + trigger  : historique « qui modifie quoi, depuis quel compte » (§6)
 -- =============================================================================
 
@@ -139,20 +137,6 @@ create table if not exists public.presences (
   unique (evenement_id, partenaire_id)
 );
 
--- v2 — Affectation des fonds : « où va l'argent ». Une ligne = une part du montant
--- validé d'un partenaire, rangée dans une catégorie (Cotisations, Équipement…).
--- Les totaux par catégorie sont CALCULÉS par le front (selectors.calculerVentilation),
--- rien n'est stocké en double.
-create table if not exists public.affectations (
-  id            uuid primary key default gen_random_uuid(),
-  partenaire_id text not null references public.partenaires(id) on delete cascade,
-  saison        text not null,
-  categorie     text not null,
-  montant       numeric(12,2) not null default 0 check (montant >= 0),
-  note          text not null default '',
-  cree_le       timestamptz not null default now()
-);
-
 -- v2 — Journal d'audit (« qui modifie quoi et depuis quel compte »).
 -- Rempli UNIQUEMENT par le trigger public.journaliser() (voir §2 bis) : aucun membre
 -- ne peut y écrire, le modifier ni l'effacer depuis le site → journal infalsifiable.
@@ -178,8 +162,6 @@ alter table public.partenaires drop constraint if exists partenaires_siret_check
 alter table public.partenaires add  constraint partenaires_siret_check check (siret = '' or siret ~ '^[0-9]{14}$');
 alter table public.presences   drop constraint if exists presences_presence_check;
 alter table public.presences   add  constraint presences_presence_check check (presence in ('Oui','En attente','Non','Contact à rajouter'));
-alter table public.reglages    add column if not exists categories text[] not null
-  default array['Cotisations','Sponsoring','Mécénat','Équipement','Événementiel','Déplacements','Formation jeunes','Fonctionnement'];
 
 -- Index sur les clés étrangères (performance)
 create index if not exists contrats_partenaire_idx      on public.contrats (partenaire_id);
@@ -189,7 +171,6 @@ create index if not exists contacts_partenaire_idx      on public.contacts (part
 create index if not exists echanges_partenaire_idx      on public.echanges (partenaire_id);
 create index if not exists presences_evenement_idx      on public.presences (evenement_id);
 create index if not exists presences_partenaire_idx     on public.presences (partenaire_id);
-create index if not exists affectations_partenaire_idx  on public.affectations (partenaire_id);
 create index if not exists journal_le_idx               on public.journal (le desc);
 create index if not exists journal_partenaire_idx       on public.journal (partenaire_id, le desc);
 
@@ -216,7 +197,7 @@ grant execute on function public.est_membre() to authenticated;
 do $$
 declare t text;
 begin
-  foreach t in array array['partenaires','contrats','echeances','contreparties','contacts','echanges','evenements','presences','affectations'] loop
+  foreach t in array array['partenaires','contrats','echeances','contreparties','contacts','echanges','evenements','presences'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists "membres uniquement" on public.%I', t);
     execute format('create policy "membres uniquement" on public.%I for all to authenticated using (public.est_membre()) with check (public.est_membre())', t);
@@ -314,7 +295,7 @@ revoke all on function public.journaliser() from public;
 do $$
 declare t text;
 begin
-  foreach t in array array['partenaires','contrats','echeances','contreparties','contacts','echanges','evenements','presences','affectations','reglages'] loop
+  foreach t in array array['partenaires','contrats','echeances','contreparties','contacts','echanges','evenements','presences','reglages'] loop
     execute format('drop trigger if exists journaliser on public.%I', t);
     execute format('create trigger journaliser after insert or update or delete on public.%I for each row execute function public.journaliser()', t);
   end loop;
@@ -326,7 +307,7 @@ end $$;
 do $$
 declare t text;
 begin
-  foreach t in array array['partenaires','contrats','echeances','contreparties','contacts','echanges','evenements','presences','reglages','membres','affectations','journal'] loop
+  foreach t in array array['partenaires','contrats','echeances','contreparties','contacts','echanges','evenements','presences','reglages','membres','journal'] loop
     execute format('alter table public.%I replica identity full', t);
     if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t) then
       execute format('alter publication supabase_realtime add table public.%I', t);
