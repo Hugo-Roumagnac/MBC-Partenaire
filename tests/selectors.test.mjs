@@ -2,6 +2,7 @@
 import test from "node:test"; // lanceur de tests intégré à Node
 import assert from "node:assert/strict"; // assertions strictes
 import { repartirCents, planifierEcheancier, calculerTableauDeBord, enRetard, cerfaAEmettre } from "../front-end/js/selectors.js"; // fonctions testées
+import { validerSiret, formaterSiret, estSolde, colonnePipeline, calculerVentilation, proposerAffectations, construireAFaire, resumerAppareil, PRESENCES } from "../front-end/js/selectors.js"; // v2
 import { ajouterMois } from "../front-end/js/dates.js"; // helper de dates
 import { CATALOGUE_CONTREPARTIES } from "../front-end/js/mock-seed.js"; // catalogue officiel du §3 du PDF
 
@@ -49,4 +50,62 @@ test("tableau de bord : négociation = RDV + Proposition + Négociation, reste j
   assert.equal(t.score.signe, 40200); // validé + cotisation validée
   assert.equal(t.score.reste, 0); // jamais négatif
   assert.equal(t.score.pctSigne, 100); // pourcentage borné à 100
+});
+
+// =============================================================================
+// v2 — nouvelles règles
+// =============================================================================
+
+test("SIRET : 14 chiffres, espaces tolérés, clé de Luhn vérifiée", () => {
+  assert.deepEqual(validerSiret(""), { valide: true, siret: "", erreur: "" }); // facultatif
+  assert.equal(validerSiret("732 829 320 00074").valide, true); // espaces retirés, clé correcte
+  assert.equal(validerSiret("732 829 320 00074").siret, "73282932000074"); // normalisé
+  assert.equal(validerSiret("73282932000075").valide, false); // dernier chiffre faux → clé incorrecte
+  assert.match(validerSiret("123").erreur, /14 chiffres/); // longueur
+  assert.equal(validerSiret("35600000049837").valide, true); // exception La Poste (somme multiple de 5)
+  assert.equal(formaterSiret("73282932000074"), "732 829 320 00074"); // affichage lisible
+});
+
+const vue = (o) => ({ id: "x", nom: "X", etape: "Signé", montantValide: 1000, cotisationValidee: 200, montantDemande: 0, cotisationDemandee: 0, dontMecenat: 0, encaisse: 0, montantPrecedent: 0, contrepartiesLivrees: 0, contrepartiesTotal: 0, echeances: [], affectations: [], ...o }); // fabrique de vues
+
+test("pipeline : un signé intégralement encaissé passe dans la colonne « Encaissé »", () => {
+  assert.equal(colonnePipeline(vue({ encaisse: 600 })), "Signé"); // encaissement partiel
+  assert.equal(colonnePipeline(vue({ encaisse: 1200 })), "Encaissé"); // 1000 + 200 encaissés
+  assert.equal(estSolde(vue({ montantValide: 0, cotisationValidee: 0, encaisse: 0 })), false); // rien à encaisser ≠ encaissé
+  assert.equal(colonnePipeline(vue({ etape: "Négociation", encaisse: 5000 })), "Négociation"); // seule une fiche signée peut être « Encaissé »
+});
+
+test("ventilation : cumuls par catégorie, prorata encaissé, non affecté", () => {
+  const a = vue({ id: "a", nom: "A", encaisse: 600, affectations: [{ categorie: "Cotisations", montant: 200 }, { categorie: "Équipement", montant: 1000 }] }); // payé à 50 %
+  const b = vue({ id: "b", nom: "B", encaisse: 1200, affectations: [{ categorie: "Cotisations", montant: 200 }] }); // payé à 100 %, 1000 € non affectés
+  const c = vue({ id: "c", nom: "C", etape: "Négociation", affectations: [{ categorie: "Cotisations", montant: 999 }] }); // non signé : ignoré
+  const t = calculerVentilation([a, b, c], ["Cotisations", "Équipement", "Événementiel"]);
+  const cot = t.lignes.find((l) => l.categorie === "Cotisations");
+  assert.equal(cot.affecte, 400); // 200 (A) + 200 (B) — le 999 de C ne compte pas
+  assert.equal(cot.encaisse, 300); // 100 (50 % de 200) + 200 (100 % de 200)
+  assert.equal(cot.nombre, 2); // deux partenaires
+  assert.equal(t.lignes.find((l) => l.categorie === "Événementiel").affecte, 0); // catégorie vide mais listée
+  assert.equal(t.totalSigne, 2400); // 2 × 1200
+  assert.equal(t.nonAffecte, 1000); // 2400 − 1400
+  assert.equal(t.aVentiler, 1); // B n'est pas entièrement ventilé
+});
+
+test("ventilation : pré-remplissage depuis le contrat, sans doublon", () => {
+  const v = vue({ montantValide: 2500, cotisationValidee: 200, dontMecenat: 2000 }); // cas « MyJob »
+  assert.deepEqual(proposerAffectations(v), [{ categorie: "Cotisations", montant: 200 }, { categorie: "Mécénat", montant: 2000 }, { categorie: "Sponsoring", montant: 500 }]);
+  assert.deepEqual(proposerAffectations({ ...v, affectations: [{ categorie: "Mécénat", montant: 2000 }] }).map((l) => l.categorie), ["Cotisations", "Sponsoring"]); // Mécénat déjà présent
+});
+
+test("événements : « Contact à rajouter » existe et alimente la liste « À faire »", () => {
+  assert.equal(PRESENCES.includes("Contact à rajouter"), true); // nouvelle valeur
+  const evts = [{ nom: "Afterwork", date: "2026-11-20", presences: [{ partenaireId: "x", presence: "Contact à rajouter", noms: "Jean D." }, { partenaireId: "x", presence: "Oui" }] }];
+  const todo = construireAFaire([vue({})], [], "2026-11-07", evts);
+  assert.equal(todo.length, 1); // une seule ligne : le « Oui » n'en crée pas
+  assert.match(todo[0].titre, /Contact à rajouter/);
+});
+
+test("journal : résumé lisible de l'appareil", () => {
+  assert.equal(resumerAppareil("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36"), "Chrome · macOS");
+  assert.equal(resumerAppareil("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1"), "Safari · iOS");
+  assert.equal(resumerAppareil(""), "");
 });

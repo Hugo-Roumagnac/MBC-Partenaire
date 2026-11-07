@@ -4,6 +4,12 @@ import { ecartJours, ajouterMois } from "./dates.js"; // helpers de dates sans D
 export const ETAPES = ["Prospect", "Contacté", "RDV", "Proposition", "Négociation", "Signé", "Perdu", "Archivé"]; // §3 listes de valeurs
 export const ETAPES_NEGOCIATION = ["RDV", "Proposition", "Négociation"]; // §5 « En négociation »
 export const COTISATION_PAR_DEFAUT = 200; // §5 règle 4 : cotisation demandée d'une nouvelle fiche
+// v2 : statuts de présence aux événements. « Contact à rajouter » = quelqu'un de l'entreprise est venu
+// (ou s'est inscrit) mais n'existe pas encore dans ses contacts : choisir ce statut ouvre la saisie du contact.
+export const PRESENCE_CONTACT = "Contact à rajouter";
+export const PRESENCES = ["Oui", "En attente", "Non", PRESENCE_CONTACT];
+// v2 : catégories d'affectation des fonds proposées par défaut (modifiables dans « Réglages du club »).
+export const CATEGORIES_PAR_DEFAUT = ["Cotisations", "Sponsoring", "Mécénat", "Équipement", "Événementiel", "Déplacements", "Formation jeunes", "Fonctionnement"];
 
 export const enCents = (euros) => Math.round((Number(euros) || 0) * 100); // euros → cents entiers (évite les flottants)
 export const enEuros = (cents) => cents / 100; // cents → euros
@@ -77,7 +83,7 @@ export function calculerTableauDeBord(etat, aujourdhui) {
       retard: { nombre: paiements.retardNombre, montant: paiements.retardMontant }, // KPI 3
       contreparties: { livrees, total: totalCp, mecenat: somme(signes, (v) => v.dontMecenat), cerfa: signes.filter(cerfaAEmettre).length } // KPI 4
     },
-    todo: construireAFaire(partenaires, echeances, aujourdhui), // liste « À faire »
+    todo: construireAFaire(partenaires, echeances, aujourdhui, etat.evenements || []), // liste « À faire » (v2 : + contacts à rajouter)
     pipeline: ETAPES.filter((e) => e !== "Archivé").map((etape) => { // une ligne par étape visible
       const liste = partenaires.filter((v) => v.etape === etape); // partenaires de l'étape
       return { etape, nombre: liste.length, montant: somme(liste, (v) => montantCarte(v).montant) }; // nombre + montant
@@ -87,7 +93,7 @@ export function calculerTableauDeBord(etat, aujourdhui) {
 }
 
 // Liste priorisée « À faire » (§4.2). Priorité 1 = le plus urgent.
-export function construireAFaire(partenaires, echeances, aujourdhui) {
+export function construireAFaire(partenaires, echeances, aujourdhui, evenements = []) {
   const items = []; // résultat
   const parId = new Map(partenaires.map((v) => [v.id, v])); // accès rapide partenaire par id
   const actifs = partenaires.filter((v) => v.etape !== "Perdu" && v.etape !== "Archivé"); // on ignore perdus/archivés
@@ -104,6 +110,12 @@ export function construireAFaire(partenaires, echeances, aujourdhui) {
   }
   for (const v of partenaires.filter(cerfaAEmettre)) { // 3) reçus CERFA à émettre
     items.push({ priorite: 3, partenaireId: v.id, titre: `Émettre le reçu CERFA — ${v.nom}`, meta: `Part de mécénat : ${v.dontMecenat} €`, date: "9999-12-31", ton: "warning", badge: "CERFA" });
+  }
+  for (const evt of evenements) { // 3 bis) v2 : contacts repérés à un événement mais pas encore saisis
+    for (const x of evt.presences || []) {
+      if (x.presence !== PRESENCE_CONTACT || !parId.has(x.partenaireId)) continue; // seulement ce statut, fiche existante
+      items.push({ priorite: 3, partenaireId: x.partenaireId, titre: `Contact à rajouter — ${parId.get(x.partenaireId).nom}`, meta: `${evt.nom}${x.noms ? ` · ${x.noms}` : ""}`, date: evt.date || "9999-12-31", ton: "info", badge: "Contact", icone: "users" });
+    }
   }
   for (const v of actifs) { // 5) négociations sans prochaine action
     if (ETAPES_NEGOCIATION.includes(v.etape) && !v.prochaineActionDate && !v.prochaineActionTexte) {
@@ -140,4 +152,124 @@ export function planifierEcheancier(vue, { montant, nombre, premierVersement }) 
       note: "" // note vide
     }))
   };
+}
+
+// =============================================================================
+// v2 — PIPELINE : colonne « Encaissé »
+// =============================================================================
+// « Encaissé » n'est PAS une étape enregistrée en base : c'est une colonne CALCULÉE.
+// Une fiche « Signé » dont toutes les échéances payées couvrent le total validé y passe
+// automatiquement ; si une échéance est décochée, elle revient dans « Signé ».
+// Avantages : aucune donnée en double, impossible d'avoir une carte « Encaissé » qui ne l'est pas,
+// et toutes les règles existantes qui testent etape === "Signé" restent justes.
+
+// Vrai si le partenaire est signé ET intégralement encaissé (comparaison en cents).
+export const estSolde = (v) => v.etape === "Signé" && enCents(totalValide(v)) > 0 && enCents(v.encaisse) >= enCents(totalValide(v));
+
+// Colonne du Kanban dans laquelle afficher une fiche.
+export const colonnePipeline = (v) => (estSolde(v) ? "Encaissé" : v.etape);
+
+// =============================================================================
+// v2 — SIRET
+// =============================================================================
+// Un SIRET = 14 chiffres (SIREN sur 9 chiffres + NIC sur 5). Le dernier chiffre est une clé de
+// contrôle selon l'algorithme de Luhn. Exception connue : les établissements de La Poste
+// (SIREN 356 000 000) : leurs SIRET peuvent ne pas respecter Luhn, la somme des chiffres est alors un multiple de 5.
+
+// Ne garde que les chiffres : « 123 456 789 00012 » → « 12345678900012 ».
+export const normaliserSiret = (texte) => String(texte ?? "").replace(/\D/g, "");
+
+// Clé de Luhn : en partant de la droite, on double un chiffre sur deux (en retirant 9 si > 9) ; total multiple de 10.
+export function luhnValide(chiffres) {
+  let total = 0; // somme pondérée
+  for (let i = 0; i < chiffres.length; i++) {
+    let n = Number(chiffres[chiffres.length - 1 - i]); // lecture de droite à gauche
+    if (i % 2 === 1) { n *= 2; if (n > 9) n -= 9; } // un chiffre sur deux est doublé
+    total += n; // cumule
+  }
+  return total % 10 === 0; // valide si multiple de 10
+}
+
+// Valide une saisie. Renvoie { valide, siret (normalisé), erreur }. Une saisie VIDE est valide (champ facultatif).
+export function validerSiret(texte) {
+  const siret = normaliserSiret(texte); // chiffres uniquement
+  if (!siret) return { valide: true, siret: "", erreur: "" }; // vide = « pas encore renseigné »
+  if (siret.length !== 14) return { valide: false, siret, erreur: `Le SIRET doit comporter 14 chiffres (${siret.length} saisi${siret.length > 1 ? "s" : ""}).` };
+  const laPoste = siret.startsWith("356000000"); // exception La Poste
+  const ok = luhnValide(siret) || (laPoste && [...siret].reduce((t, c) => t + Number(c), 0) % 5 === 0); // Luhn, ou règle « somme multiple de 5 » des établissements La Poste
+  return ok ? { valide: true, siret, erreur: "" } : { valide: false, siret, erreur: "Numéro SIRET invalide (clé de contrôle incorrecte) : vérifiez la saisie." };
+}
+
+// Affichage lisible : « 12345678900012 » → « 123 456 789 00012 ».
+export const formaterSiret = (siret) => (String(siret || "").length === 14 ? `${siret.slice(0, 3)} ${siret.slice(3, 6)} ${siret.slice(6, 9)} ${siret.slice(9)}` : String(siret || ""));
+
+// =============================================================================
+// v2 — VENTILATION FINANCIÈRE : « où va l'argent »
+// =============================================================================
+// Chaque fiche signée peut répartir son total validé en lignes d'affectation (catégorie + montant).
+// Le tableau de bord cumule ces lignes par catégorie pour TOUS les partenaires signés.
+// « Encaissé » par catégorie = montant affecté × part déjà encaissée du partenaire (prorata) :
+// un partenaire qui a payé 50 % de son contrat a encaissé 50 % de chacune de ses affectations.
+
+// Total affecté d'une fiche (somme de ses lignes).
+export const totalAffecte = (v) => somme(v.affectations || [], (a) => a.montant);
+
+// Propose les lignes d'affectation « évidentes » déduites du contrat (bouton « Pré-remplir ») :
+// cotisation validée → Cotisations ; part de mécénat → Mécénat ; le reste du montant validé → Sponsoring.
+// Les catégories déjà présentes sur la fiche ne sont pas reproposées (pas de doublon).
+export function proposerAffectations(v) {
+  const deja = new Set((v.affectations || []).map((a) => a.categorie)); // catégories déjà utilisées
+  const mecenat = Math.min(Number(v.dontMecenat) || 0, Number(v.montantValide) || 0); // le mécénat est inclus dans le montant validé
+  return [
+    { categorie: "Cotisations", montant: Number(v.cotisationValidee) || 0 },
+    { categorie: "Mécénat", montant: mecenat },
+    { categorie: "Sponsoring", montant: enEuros(enCents(v.montantValide) - enCents(mecenat)) }
+  ].filter((l) => l.montant > 0 && !deja.has(l.categorie)); // ni montant nul, ni doublon
+}
+
+// Cumuls par catégorie. partenaires = vues (seuls les « Signé » comptent) ; categories = liste des réglages.
+export function calculerVentilation(partenaires, categories = CATEGORIES_PAR_DEFAUT) {
+  const signes = partenaires.filter((v) => v.etape === "Signé"); // même règle que le score de saison
+  const parCategorie = new Map(categories.map((c) => [c, { categorie: c, affecteCents: 0, encaisseCents: 0, partenaires: [] }])); // ordre des réglages
+  for (const v of signes) {
+    const total = enCents(totalValide(v)); // total validé du partenaire
+    const taux = total > 0 ? Math.min(1, enCents(v.encaisse) / total) : 0; // part déjà encaissée (0 → 1)
+    for (const a of v.affectations || []) {
+      if (!parCategorie.has(a.categorie)) parCategorie.set(a.categorie, { categorie: a.categorie, affecteCents: 0, encaisseCents: 0, partenaires: [], horsListe: true }); // catégorie retirée des réglages : on la garde visible
+      const ligne = parCategorie.get(a.categorie); // cumul de la catégorie
+      const cents = enCents(a.montant); // montant affecté
+      ligne.affecteCents += cents; // cumul affecté
+      ligne.encaisseCents += Math.round(cents * taux); // cumul encaissé (prorata)
+      ligne.partenaires.push({ id: v.id, nom: v.nom, montant: a.montant, note: a.note || "" }); // détail
+    }
+  }
+  const totalSigne = somme(signes, totalValide); // base de comparaison
+  const lignes = [...parCategorie.values()].map((l) => ({
+    categorie: l.categorie, horsListe: !!l.horsListe,
+    affecte: enEuros(l.affecteCents), encaisse: enEuros(l.encaisseCents), // euros
+    nombre: new Set(l.partenaires.map((p) => p.id)).size, // nombre de partenaires distincts
+    partenaires: l.partenaires.sort((a, b) => b.montant - a.montant) // plus gros d'abord
+  }));
+  const totalAffecteCents = lignes.reduce((t, l) => t + enCents(l.affecte), 0); // somme de toutes les catégories
+  return {
+    lignes, // une ligne par catégorie (même vide, pour voir les catégories disponibles)
+    totalSigne, // total validé des signés
+    totalAffecte: enEuros(totalAffecteCents), // total réparti
+    totalEncaisse: enEuros(lignes.reduce((t, l) => t + enCents(l.encaisse), 0)), // encaissé réparti
+    nonAffecte: enEuros(Math.max(0, enCents(totalSigne) - totalAffecteCents)), // reste à répartir (jamais négatif)
+    depassement: enEuros(Math.max(0, totalAffecteCents - enCents(totalSigne))), // affecté au-delà du signé (erreur de saisie)
+    pctAffecte: totalSigne > 0 ? Math.min(100, Math.round((enEuros(totalAffecteCents) / totalSigne) * 100)) : 0, // % du signé réparti
+    aVentiler: signes.filter((v) => enCents(totalAffecte(v)) !== enCents(totalValide(v))).length // fiches dont la ventilation ≠ total validé
+  };
+}
+
+// =============================================================================
+// v2 — JOURNAL : résumé lisible de l'appareil (« depuis quel compte / quel poste »)
+// =============================================================================
+// « Mozilla/5.0 (Macintosh; …) … Chrome/131 Safari/537 » → « Chrome · macOS ».
+export function resumerAppareil(ua = "") {
+  if (!ua) return ""; // inconnu (ex. modification faite directement en SQL)
+  const nav = /Edg\//.test(ua) ? "Edge" : /OPR\//.test(ua) ? "Opera" : /Firefox\//.test(ua) ? "Firefox" : /Chrome\//.test(ua) ? "Chrome" : /Safari\//.test(ua) ? "Safari" : "Navigateur"; // ordre important : Edge et Opera contiennent « Chrome »
+  const os = /iPhone|iPad/.test(ua) ? "iOS" : /Android/.test(ua) ? "Android" : /Mac OS X|Macintosh/.test(ua) ? "macOS" : /Windows/.test(ua) ? "Windows" : /Linux/.test(ua) ? "Linux" : ""; // système
+  return [nav, os].filter(Boolean).join(" · ");
 }

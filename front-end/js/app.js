@@ -15,6 +15,11 @@ import { showToast, escapeHtml, stageSlug, formatEuro, montantAffiche } from "./
 import { injecterIcones } from "./icons.js";
 import { initModales } from "./modal.js";
 import { initInvitations } from "./invitations.js";
+// ---- v2 ----
+import { initJournal, renderJournal } from "./journal.js"; // écran Journal (audit)
+import { initSiret } from "./siret.js"; // fenêtre SIRET
+import { initContacts } from "./contacts.js"; // fenêtre « Nouveau contact »
+import { initLogos } from "./logos.js"; // repli automatique sur le monogramme si une image ne charge pas
 
 injecterIcones();
 
@@ -29,6 +34,7 @@ try {
   initEnTete({ onExport: exporter });
   initInvitations();
   initDashboard(); initPipeline(); initPartenaires(); initPaiements(); initEvenements(); initFiche();
+  initJournal(); initSiret(); initContacts(); initLogos(); // v2
   initActionsRapides();
   initRechercheGlobale();
   document.querySelectorAll("form[data-no-submit]").forEach((f) => f.addEventListener("submit", (e) => e.preventDefault()));
@@ -40,6 +46,7 @@ try {
   enregistrerEcran("partenaires", renderTable);
   enregistrerEcran("paiements", renderPaiements);
   enregistrerEcran("evenements", renderEvenements);
+  enregistrerEcran("journal", renderJournal); // v2
 
   onChange(() => { // à chaque changement (local ou temps réel)
     rendreEcranActif(); // seul l'écran visible est redessiné
@@ -74,14 +81,15 @@ function majVoyantSync() {
 // Pastilles de la navigation : actions à faire, retards, nombre de fiches…
 function majCompteurs() {
   const jour = aujourdhui();
-  const t = calculerTableauDeBord({ partenaires: store.partenaires, echeances: store.echeancesSaison, reglages: store.reglages }, jour);
+  const t = calculerTableauDeBord({ partenaires: store.partenaires, echeances: store.echeancesSaison, reglages: store.reglages, evenements: store.evenements }, jour);
   const urgent = t.todo.filter((i) => i.ton === "danger").length;
   const valeurs = {
     todo: urgent || "",
     pipeline: store.partenaires.filter((p) => !["Signé", "Perdu", "Archivé"].includes(p.etape)).length || "",
     partenaires: store.partenaires.filter((p) => p.etape !== "Archivé").length || "",
     retards: store.echeancesSaison.filter((e) => enRetard(e, jour)).length || "",
-    evenements: store.evenements.filter((e) => e.date >= jour).length || ""
+    evenements: store.evenements.filter((e) => e.date >= jour).length || "",
+    journal: store.journal.filter((e) => String(e.le).slice(0, 10) === jour).length || "" // v2 : modifications du jour
   };
   document.querySelectorAll("[data-count]").forEach((el) => { el.textContent = String(valeurs[el.dataset.count] ?? ""); });
 }
@@ -113,7 +121,7 @@ function initRechercheGlobale() {
   function rendre() {
     const q = norm(input.value.trim());
     if (!q) { fermer(); return; }
-    resultats = store.partenaires.filter((p) => norm([p.nom, p.secteur, p.responsable, p.notes, ...p.contacts.map((c) => `${c.nom} ${c.email}`)].join(" ")).includes(q))
+    resultats = store.partenaires.filter((p) => norm([p.nom, p.secteur, p.responsable, p.notes, p.siret, ...p.contacts.map((c) => `${c.nom} ${c.email}`)].join(" ")).includes(q))
       .sort((a, b) => Number(!norm(a.nom).startsWith(q)) - Number(!norm(b.nom).startsWith(q)) || a.nom.localeCompare(b.nom, "fr")).slice(0, 8);
     index = 0;
     box.innerHTML = resultats.length ? resultats.map((p, i) => `

@@ -56,6 +56,7 @@
   --stage-proposition: #8358c6;
   --stage-negociation: #e8761e;
   --stage-signe: #17804a;
+  --stage-encaisse: #0e8f84; /* v2 : colonne calculée « Encaissé » (signé + soldé) */
   --stage-perdu: #c42b2b;
   --stage-archive: #9aa1ad;
 

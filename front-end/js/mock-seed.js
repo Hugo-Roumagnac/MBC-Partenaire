@@ -1,5 +1,6 @@
 // mock-seed.js — transforme mock/*.json (modèle plat) en tables normalisées pour le mode "mock".
 import { loadMockData } from "./data.js"; // charge les JSON plats existants
+import { CATEGORIES_PAR_DEFAUT } from "./selectors.js"; // v2 : catégories d'affectation par défaut
 
 // Catalogue des contreparties du §3 du PDF (exactement 20 libellés officiels).
 export const CATALOGUE_CONTREPARTIES = [
@@ -27,7 +28,9 @@ export async function seedTables() {
     echanges: [],
     evenements: [],
     presences: [],
-    reglages: [{ id: 1, saisonEnCours: "2026-27", saisonPrecedente: "2025-26", objectif: 50000, responsables: ["Thomas Roumagnac", "Éric Bussing"], catalogue: CATALOGUE_CONTREPARTIES }],
+    affectations: [], // v2 : ventilation des fonds
+    journal: [], // v2 : journal d'audit (vide au départ : l'import n'est pas une action d'un membre)
+    reglages: [{ id: 1, saisonEnCours: "2026-27", saisonPrecedente: "2025-26", objectif: 50000, responsables: ["Thomas Roumagnac", "Éric Bussing"], catalogue: CATALOGUE_CONTREPARTIES, categories: CATEGORIES_PAR_DEFAUT }],
     membres: [{ email: "thomas@exemple.fr", nom: "Thomas Roumagnac" }, { email: "eric@exemple.fr", nom: "Éric Bussing" }]
   };
 
@@ -47,6 +50,8 @@ export async function seedTables() {
       prochaineActionDate: p.prochaineActionDate || null,
       prochaineActionTexte: p.prochaineActionTexte || "",
       premierContact: p.premierContact || null,
+      siret: "", // v2 : à compléter (jamais de vrai SIRET inventé dans les données de démo)
+      logo: "", // v2 : aucun logo au départ → monogramme
       modifieLe: new Date().toISOString(),
       modifiePar: "import"
     });
@@ -102,6 +107,18 @@ export async function seedTables() {
           note: i < payees ? (i % 2 ? "Chèque" : "Virement") : ""
         });
       }
+    }
+
+    // v2 — Affectation des fonds (démo) pour les signés : cotisation → Cotisations, mécénat → Mécénat,
+    // le reste en Sponsoring ; une fiche sur trois répartit ce reste entre Équipement (60 %) et Événementiel (40 %).
+    if (p.etape === "Signé" && totalValide > 0) {
+      const ligne = (categorie, montant, note = "") => montant > 0 && tables.affectations.push({ id: crypto.randomUUID(), partenaireId: p.id, saison: SAISON_N, categorie, montant, note });
+      const mecenat = Math.min(p.dontMecenat || 0, p.montantValide || 0); // inclus dans le montant validé
+      const reste = (p.montantValide || 0) - mecenat; // sponsoring « pur »
+      ligne("Cotisations", p.cotisationValidee || 0);
+      ligne("Mécénat", mecenat);
+      if (tables.partenaires.length % 3 === 0) { const equip = Math.round(reste * 0.6); ligne("Équipement", equip, "Maillots et ballons"); ligne("Événementiel", reste - equip, "Afterworks"); }
+      else ligne("Sponsoring", reste);
     }
 
     // Contreparties : autant que le total, les N premières livrées

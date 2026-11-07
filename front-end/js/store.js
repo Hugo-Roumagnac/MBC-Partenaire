@@ -1,7 +1,7 @@
 // store.js — état en mémoire + abonnement temps réel. Seule source de vérité des écrans.
 import * as api from "./api.js"; // couche d'accès aux données
 import { aujourdhui } from "./dates.js"; // date du jour (ISO local)
-import { COTISATION_PAR_DEFAUT, enEuros, enCents } from "./selectors.js"; // constantes et conversions
+import { COTISATION_PAR_DEFAUT, CATEGORIES_PAR_DEFAUT, enEuros, enCents, estSolde } from "./selectors.js"; // constantes, conversions et règles
 import { slugify } from "./utils.js"; // identifiant lisible à partir d'un nom
 
 const vide = () => Object.fromEntries(api.TABLES.map((t) => [t, []])); // { partenaires: [], contrats: [], ... }
@@ -11,7 +11,9 @@ export const store = {
   partenaires: [], // VUES plates des partenaires (calculées)
   evenements: [], // événements avec leurs présences imbriquées (calculé)
   echeancesSaison: [], // échéances de la saison en cours (calculé)
-  reglages: { saisonEnCours: "2026-27", saisonPrecedente: "2025-26", objectif: 0, responsables: [], catalogue: [] }, // réglages du club
+  affectationsSaison: [], // v2 : lignes de ventilation des fonds de la saison en cours (calculé)
+  journal: [], // v2 : journal d'audit, le plus récent d'abord (calculé)
+  reglages: { saisonEnCours: "2026-27", saisonPrecedente: "2025-26", objectif: 0, responsables: [], catalogue: [], categories: CATEGORIES_PAR_DEFAUT }, // réglages du club (v2 : + catégories d'affectation)
   utilisateur: null, // { email, nom } du membre connecté (rempli par auth.js)
   sync: "hors-ligne" // "connecte" | "hors-ligne" | "erreur" (affiché dans l'en-tête)
 };
@@ -24,11 +26,13 @@ export const emitChange = (raison = "update") => ecouteurs.forEach((fn) => fn(ra
 function reconstruire() {
   const { raw } = store; // tables brutes
   store.reglages = { ...store.reglages, ...(raw.reglages[0] || {}) }; // réglages (une seule ligne)
+  if (!store.reglages.categories?.length) store.reglages.categories = CATEGORIES_PAR_DEFAUT; // v2 : base antérieure sans catégories
   const { saisonEnCours: N, saisonPrecedente: P } = store.reglages; // saison courante et précédente
   const grouper = (lignes) => { const m = new Map(); for (const l of lignes) { (m.get(l.partenaireId) || m.set(l.partenaireId, []).get(l.partenaireId)).push(l); } return m; }; // regroupe par partenaire
   const contrats = grouper(raw.contrats), echeances = grouper(raw.echeances.filter((e) => e.saison === N)), cps = grouper(raw.contreparties.filter((c) => c.saison === N)), contacts = grouper(raw.contacts), echanges = grouper(raw.echanges); // index par partenaire
+  const affectations = grouper(raw.affectations.filter((a) => a.saison === N)); // v2 : ventilation de la saison, par partenaire
 
-  store.partenaires = raw.partenaires.map((p) => { // une vue par fiche
+  store.partenaires = raw.partenaires.map((p) => { // une vue par fiche (v2 : complétée juste après par « solde »)
     const cs = contrats.get(p.id) || []; // contrats du partenaire
     const c = cs.find((x) => x.saison === N) || null; // contrat de la saison en cours
     const cp = cs.find((x) => x.saison === P) || null; // contrat de la saison précédente
@@ -48,10 +52,15 @@ function reconstruire() {
       contreparties: liste, // contreparties de la saison
       contrepartiesTotal: liste.length, contrepartiesLivrees: liste.filter((x) => x.livree).length, // compteurs
       contacts: contacts.get(p.id) || [], // contacts
+      siret: p.siret || "", logo: p.logo || "", // v2 : SIRET (14 chiffres) et adresse du logo (vide = monogramme)
+      affectations: affectations.get(p.id) || [], // v2 : ventilation des fonds de la saison
       echanges: (echanges.get(p.id) || []).sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.creeLe).localeCompare(String(a.creeLe))) // historique, récent d'abord
     };
   });
+  store.partenaires.forEach((v) => { v.solde = estSolde(v); }); // v2 : signé ET intégralement encaissé → colonne « Encaissé » du pipeline
   const ids = new Set(raw.partenaires.map((p) => p.id)); // fiches existantes (écarte les échéances orphelines)
+  store.affectationsSaison = raw.affectations.filter((a) => a.saison === N && ids.has(a.partenaireId)); // v2 : ventilation de la saison (tous partenaires)
+  store.journal = raw.journal.slice().sort((a, b) => String(b.le).localeCompare(String(a.le))).slice(0, api.JOURNAL_MAX); // v2 : plus récent d'abord, plafonné
   store.echeancesSaison = raw.echeances.filter((e) => e.saison === N && ids.has(e.partenaireId)); // échéances de la saison (tous partenaires)
   store.evenements = raw.evenements.map((e) => ({ ...e, presences: raw.presences.filter((x) => x.evenementId === e.id).map((x) => ({ ...x, partnerId: x.partenaireId })) })); // présences imbriquées (compat evenements.js)
 }
@@ -67,6 +76,7 @@ let desabonner = null; // fonction de désabonnement temps réel
 export async function initStore() {
   await api.init(); // prépare le client
   await recharger("hydrate"); // premier chargement complet
+  api.definirSession(() => store.utilisateur); // v2 : le journal du mode mock est signé par le membre connecté
   desabonner?.(); // évite un double abonnement
   desabonner = api.subscribe(appliquerEvenement, (statut) => { // abonnement postgres_changes
     store.sync = statut === "SUBSCRIBED" ? "connecte" : statut === "CLOSED" ? "hors-ligne" : "erreur"; // état affiché
@@ -88,13 +98,14 @@ function appliquerEvenement({ table, type, row }) {
   const i = liste.findIndex((l) => l[cle] === row[cle]); // position de la ligne
   if (type === "DELETE") { // suppression
     if (i >= 0) liste.splice(i, 1); // on retire la ligne
-    if (table === "partenaires") for (const t of ["contrats", "echeances", "contreparties", "contacts", "echanges", "presences"]) store.raw[t] = store.raw[t].filter((l) => l.partenaireId !== row.id); // cascade locale
+    if (table === "partenaires") for (const t of api.TABLES_ENFANTS) store.raw[t] = store.raw[t].filter((l) => l.partenaireId !== row.id); // cascade locale
   } else if (i >= 0) liste[i] = { ...liste[i], ...row }; // mise à jour : on FUSIONNE (ne perd pas les champs absents du payload)
   else liste.push(row); // insertion
   planifier(`rt:${table}`); // re-rend (regroupé)
 }
 
 // ---------- Écritures optimistes ----------
+const TABLES_TOUCHENT = ["contrats", "echeances", "contreparties", "contacts", "affectations"]; // tables dont l'écriture met à jour « dernière modification » de la fiche
 // Écrit un patch : l'UI change tout de suite, puis on confirme auprès de l'api ; en cas d'échec on annule.
 export async function ecrire(table, id, patch) {
   const cle = table === "membres" ? "email" : "id"; // clé primaire
@@ -104,7 +115,7 @@ export async function ecrire(table, id, patch) {
   try {
     const sauvee = await api.update(table, id, patch); // écriture réelle (seuls les champs modifiés : règle §5.6)
     if (ligne) Object.assign(ligne, sauvee); // aligne sur la valeur serveur
-    if (["contrats", "echeances", "contreparties", "contacts"].includes(table)) toucher(ligne?.partenaireId); // « dernière modification » du partenaire
+    if (TABLES_TOUCHENT.includes(table)) toucher(ligne?.partenaireId); // « dernière modification » du partenaire
     return sauvee; // renvoie la ligne enregistrée
   } catch (err) {
     if (ligne && avant) { Object.assign(ligne, avant); reconstruire(); emitChange(`rollback:${table}`); } // annule l'affichage optimiste
@@ -116,7 +127,7 @@ export async function ajouter(table, ligne) {
   const sauvee = await api.insert(table, ligne); // insertion
   const liste = store.raw[table]; // table locale
   if (!liste.some((l) => l.id === sauvee.id)) liste.push(sauvee); // évite le doublon si l'écho temps réel est arrivé avant
-  if (["contrats", "echeances", "contreparties", "contacts"].includes(table)) toucher(sauvee.partenaireId); // met à jour modifie_le/par
+  if (TABLES_TOUCHENT.includes(table)) toucher(sauvee.partenaireId); // met à jour modifie_le/par
   reconstruire(); emitChange(`local:${table}`); // rendu
   return sauvee; // ligne créée
 }
@@ -126,8 +137,8 @@ export async function supprimer(table, id) {
   const ligne = store.raw[table].find((l) => l[cle] === id); // ligne à retirer
   await api.remove(table, id); // suppression réelle
   store.raw[table] = store.raw[table].filter((l) => l[cle] !== id); // retrait local
-  if (table === "partenaires") for (const t of ["contrats", "echeances", "contreparties", "contacts", "echanges", "presences"]) store.raw[t] = store.raw[t].filter((l) => l.partenaireId !== id); // cascade locale (la base le fait aussi)
-  if (["contrats", "echeances", "contreparties", "contacts"].includes(table)) toucher(ligne?.partenaireId); // dernière modification
+  if (table === "partenaires") for (const t of api.TABLES_ENFANTS) store.raw[t] = store.raw[t].filter((l) => l.partenaireId !== id); // cascade locale (la base le fait aussi)
+  if (TABLES_TOUCHENT.includes(table)) toucher(ligne?.partenaireId); // dernière modification
   reconstruire(); emitChange(`local:${table}`); // rendu
 }
 
@@ -154,10 +165,10 @@ export async function changerEtape(partenaireId, nouvelle) {
 }
 
 // Règle §5.4 : nouvelle fiche = cotisation demandée 200 € + « Fiche créée » dans l'historique.
-export async function creerPartenaire({ nom, secteur = "", etape = "Prospect", type = "Sponsoring", responsable = "", montantDemande = 0, prochaineActionDate = null, prochaineActionTexte = "" }) {
+export async function creerPartenaire({ nom, secteur = "", siret = "", etape = "Prospect", type = "Sponsoring", responsable = "", montantDemande = 0, prochaineActionDate = null, prochaineActionTexte = "" }) {
   let id = slugify(nom), n = 2; // identifiant lisible
   while (store.raw.partenaires.some((p) => p.id === id)) id = `${slugify(nom)}-${n++}`; // garantit l'unicité
-  const p = await ajouter("partenaires", { id, nom, secteur, etape, type, responsable, notes: "", prochaineActionDate, prochaineActionTexte, premierContact: aujourdhui(), modifieLe: new Date().toISOString(), modifiePar: auteur() }); // la fiche
+  const p = await ajouter("partenaires", { id, nom, secteur, siret, logo: "", etape, type, responsable, notes: "", prochaineActionDate, prochaineActionTexte, premierContact: aujourdhui(), modifieLe: new Date().toISOString(), modifiePar: auteur() }); // la fiche
   await ajouter("contrats", { partenaireId: p.id, saison: store.reglages.saisonEnCours, montantDemande, cotisationDemandee: COTISATION_PAR_DEFAUT, montantValide: 0, cotisationValidee: 0, dontMecenat: 0, cerfaEmis: false, natureValeur: 0, natureDescription: "", modalites: "" }); // contrat de la saison
   await noterHistorique(p.id, "Fiche créée", { auto: true }); // trace de création
   return p; // fiche créée
@@ -178,6 +189,72 @@ export async function appliquerPlanEcheancier(partenaireId, plan) {
   for (const id of plan.aSupprimer) await supprimer("echeances", id); // 2) supprime les anciennes non payées
 }
 
+// ---------- v2 : SIRET, logos, contacts, ventilation ----------
+
+// Enregistre (ou efface avec "") le SIRET d'une fiche. La validation (14 chiffres + clé de Luhn)
+// est faite AVANT par l'appelant avec selectors.validerSiret ; la base la revérifie (contrainte CHECK).
+export async function enregistrerSiret(partenaireId, siret) {
+  await ecrire("partenaires", partenaireId, { siret, modifieLe: new Date().toISOString(), modifiePar: auteur() }); // écriture optimiste + journal
+}
+
+// Remplace le logo d'une fiche par l'adresse renvoyée par api.deposerLogo (ou "" pour le retirer).
+// L'ancien fichier est supprimé APRÈS l'écriture réussie : en cas d'échec on garde l'ancien logo intact.
+export async function enregistrerLogo(partenaireId, adresse) {
+  const ancien = store.raw.partenaires.find((p) => p.id === partenaireId)?.logo || ""; // logo actuel
+  await ecrire("partenaires", partenaireId, { logo: adresse, modifieLe: new Date().toISOString(), modifiePar: auteur() }); // nouvelle adresse (temps réel → autres membres)
+  if (ancien && ancien !== adresse) api.supprimerFichierLogo(ancien); // ménage dans le stockage (best-effort)
+}
+
+// Crée un contact rattaché à une fiche et le trace dans l'historique des échanges.
+export async function creerContact(partenaireId, { nom = "", fonction = "", email = "", tel = "" }, origine = "") {
+  const c = await ajouter("contacts", { partenaireId, nom, fonction, email, tel }); // le contact
+  await noterHistorique(partenaireId, `Contact ajouté : ${nom || "(sans nom)"}${origine ? ` — ${origine}` : ""}`, { auto: true }); // trace
+  return c; // contact créé
+}
+
+// Pré-remplit la ventilation d'une fiche à partir de son contrat (cotisation, mécénat, reste en sponsoring).
+// N'ajoute que les catégories absentes : relancer la fonction ne crée pas de doublon.
+export async function preRemplirAffectations(partenaireId, lignes) {
+  const saison = store.reglages.saisonEnCours; // saison courante
+  for (const l of lignes) await ajouter("affectations", { partenaireId, saison, note: "", ...l }); // une ligne par catégorie proposée
+}
+
+// ---------- v2 : restauration depuis le journal (« historique réversible ») ----------
+// Chaque entrée du journal contient de quoi revenir en arrière :
+//   UPDATE → on réécrit les valeurs « avant » des champs modifiés
+//   DELETE → on recrée la ligne à l'identique (même identifiant)
+//   INSERT → on supprime la ligne créée
+// La restauration est elle-même une écriture normale : elle apparaît donc à son tour dans le journal.
+const NON_RESTAURABLE = (v) => typeof v === "string" && v === "(image importée)"; // marqueur du mode mock : l'image n'a pas été recopiée
+
+export function restaurable(entree) {
+  if (!entree || entree.tableNom === "reglages" && entree.action !== "UPDATE") return false; // la ligne unique des réglages ne se crée / supprime pas
+  const existe = (t, id) => store.raw[t]?.some((l) => String(l.id) === String(id)); // la ligne est-elle encore là ?
+  if (entree.action === "UPDATE") return existe(entree.tableNom, entree.ligneId) && Object.values(entree.avant || {}).some((v) => !NON_RESTAURABLE(v)); // ligne présente + au moins une valeur récupérable
+  if (entree.action === "DELETE") return !existe(entree.tableNom, entree.ligneId) && (entree.tableNom === "partenaires" || !entree.partenaireId || existe("partenaires", entree.partenaireId)); // ligne absente, et sa fiche existe (sauf si c'est la fiche elle-même)
+  if (entree.action === "INSERT") return entree.tableNom !== "partenaires" && existe(entree.tableNom, entree.ligneId); // annuler une création (jamais une fiche entière : trop destructeur, on passe par « Supprimer la fiche »)
+  return false;
+}
+
+export async function restaurer(entree) {
+  if (!restaurable(entree)) throw new Error("Restauration impossible"); // garde-fou
+  const { tableNom: table, ligneId: id } = entree; // cible
+  if (entree.action === "UPDATE") { // remet les anciennes valeurs (sauf images non recopiées)
+    const patch = Object.fromEntries(Object.entries(entree.avant).filter(([, v]) => !NON_RESTAURABLE(v))); // valeurs récupérables
+    if (table === "partenaires" && "etape" in patch) { const { etape, ...reste } = patch; await changerEtape(id, etape); if (Object.keys(reste).length) await ecrire(table, id, reste); return; } // l'étape passe par la règle §5.1 (historique)
+    await ecrire(table, table === "reglages" ? Number(id) || id : id, patch); return;
+  }
+  if (entree.action === "INSERT") { await supprimer(table, table === "reglages" ? Number(id) : id); return; } // annule une création
+  // DELETE : on recrée la ligne. Pour une fiche, on recrée aussi toutes ses données supprimées en cascade
+  // au même instant (même horodatage « le » dans le journal), la fiche d'abord puis ses enfants.
+  const { creeLe, ...ligne } = Object.fromEntries(Object.entries(entree.avant).filter(([, v]) => !NON_RESTAURABLE(v))); // ligne d'origine (creeLe sera régénéré)
+  await ajouter(table, ligne); // recrée la ligne avec son identifiant d'origine
+  if (table === "partenaires") {
+    const enfants = store.journal.filter((j) => j.action === "DELETE" && j.le === entree.le && j.partenaireId === id && j.tableNom !== "partenaires"); // cascade du même instant
+    for (const j of enfants) { const { creeLe: _c, ...l } = j.avant; if (!store.raw[j.tableNom].some((x) => x.id === l.id)) await ajouter(j.tableNom, l); } // recrée chaque enfant absent
+  }
+}
+
 // ---------- Compatibilité avec les écrans existants ----------
 export const getPartner = (id) => store.partenaires.find((p) => p.id === id) || null; // ancien nom, utilisé par evenements.js
 
@@ -187,7 +264,8 @@ export const COLONNES = [ // colonnes du Kanban (remplace mock/pipeline.json, §
   { id: "RDV", slug: "rdv", description: "Rendez-vous fixé ou à confirmer" },
   { id: "Proposition", slug: "proposition", description: "Offre / devis envoyé" },
   { id: "Négociation", slug: "negociation", description: "Discussion sur le pack et le montant" },
-  { id: "Signé", slug: "signe", description: "Accord validé pour la saison" },
+  { id: "Signé", slug: "signe", description: "Accord validé, paiement en cours" },
+  { id: "Encaissé", slug: "encaisse", description: "Signé et intégralement encaissé", derivee: true }, // v2 : colonne CALCULÉE (voir selectors.colonnePipeline)
   { id: "Perdu", slug: "perdu", description: "Non reconduit ou refusé" }
-]; // 7 colonnes
+]; // 8 colonnes (dont « Encaissé », calculée)
 store.colonnes = COLONNES; // pipeline.js lit store.colonnes

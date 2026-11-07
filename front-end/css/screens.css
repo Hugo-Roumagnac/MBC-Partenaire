@@ -194,3 +194,118 @@
   .drawer__head, .drawer__body { padding-left: var(--space-4); padding-right: var(--space-4); }
   .event-stats { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ==========================================================================
+   v2 — NOUVELLES FONCTIONNALITÉS
+   ========================================================================== */
+
+/* ---------- Utilitaires ---------- */
+.due--ok { color: var(--color-success); font-weight: 700; }
+.nowrap { white-space: nowrap; }
+.btn.is-armed { background: var(--color-danger); border-color: var(--color-danger); color: #fff; } /* confirmation en deux clics (restaurer…) */
+
+/* ---------- Logos des partenaires (logos.js) ----------
+   Le monogramme est TOUJOURS présent ; l'image, si elle existe, est posée par-dessus.
+   Si l'image ne se charge pas, logos.js la retire → le monogramme réapparaît. */
+.plogo { position: relative; flex: 0 0 auto; display: inline-grid; place-items: center; overflow: hidden; border-radius: 8px; border: 1px solid var(--color-border); background: var(--color-surface); }
+.plogo--sm { width: 28px; height: 28px; border-radius: 7px; }
+.plogo--md { width: 36px; height: 36px; }
+.plogo--lg { width: 56px; height: 56px; border-radius: 12px; }
+.plogo__mono {
+  width: 100%; height: 100%; display: grid; place-items: center;
+  font-weight: 800; font-size: 0.6875rem; letter-spacing: 0.02em; color: hsl(var(--plogo-h) 45% 32%);
+  background: hsl(var(--plogo-h) 60% 92%);
+}
+.plogo--md .plogo__mono { font-size: 0.75rem; }
+.plogo--lg .plogo__mono { font-size: 1.0625rem; }
+.plogo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; padding: 2px; background: #fff; } /* fond blanc : les logos sont pensés pour un fond clair */
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .plogo__mono { color: hsl(var(--plogo-h) 60% 82%); background: hsl(var(--plogo-h) 30% 24%); } }
+:root[data-theme="dark"] .plogo__mono { color: hsl(var(--plogo-h) 60% 82%); background: hsl(var(--plogo-h) 30% 24%); }
+
+/* Logo cliquable de l'en-tête de fiche (clic = importer ; on peut aussi y déposer une image) */
+.fiche-logo { position: relative; flex: 0 0 auto; padding: 0; border: 0; background: none; border-radius: 12px; cursor: pointer; }
+.fiche-logo::after { content: "+"; position: absolute; right: -4px; bottom: -4px; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; background: var(--color-accent); color: #fff; font-weight: 800; font-size: 14px; line-height: 1; box-shadow: 0 0 0 2px var(--color-surface); }
+.fiche-logo:hover .plogo, .fiche-logo:focus-visible .plogo { box-shadow: var(--focus-ring); }
+.fiche-logo--drop .plogo { outline: 2px dashed var(--color-accent); outline-offset: 2px; }
+.fiche-logo.is-busy .plogo { opacity: 0.6; }
+.fiche-logo.is-busy::after { content: "…"; }
+.logo-field { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.partner-cell { display: flex; align-items: center; gap: 10px; }
+.pcard__top .plogo { margin-top: 1px; }
+.pcard__top { justify-content: flex-start; }
+
+/* ---------- Pipeline : colonne calculée « Encaissé » ---------- */
+.kanban__col--encaisse { --stage-c: var(--stage-encaisse); }
+.kanban__col--derivee .kanban__head { border-top-style: double; border-top-width: 4px; }
+.badge--encaisse { --stage-c: var(--stage-encaisse); background: color-mix(in srgb, var(--stage-c) 14%, transparent); color: color-mix(in srgb, var(--stage-c) 85%, var(--color-text)); }
+.pcard__cash { display: grid; gap: 3px; }
+.pcard__cash small { font-size: var(--text-xs); color: var(--color-text-muted); }
+.kanban__col--encaisse .meter__fill { background: var(--stage-encaisse); }
+
+/* ---------- SIRET (écran Partenaires) ---------- */
+.siret-btn { display: inline-flex; align-items: center; gap: 6px; padding: 3px 6px; margin: -3px -6px; border: 1px solid transparent; border-radius: var(--radius-sm); background: none; color: var(--color-text); font: inherit; font-variant-numeric: tabular-nums; cursor: pointer; white-space: nowrap; }
+.siret-btn .icon { color: var(--color-text-faint); opacity: 0; transition: opacity 120ms; }
+.siret-btn:hover, .siret-btn:focus-visible { border-color: var(--color-border); background: var(--color-surface); }
+.siret-btn:hover .icon, .siret-btn:focus-visible .icon { opacity: 1; }
+.siret-btn--vide { color: var(--color-warning) !important; }
+@media (hover: none) { .siret-btn .icon { opacity: 1; } }
+
+/* ---------- Affectation des fonds (tableau de bord + fiche) ---------- */
+.vent-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+@media (min-width: 760px) { .vent-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.score__fig--warning .kpi__value { color: var(--color-warning); }
+.score__fig--danger .kpi__value { color: var(--color-danger); }
+.vent-legend { margin: var(--space-3) 0 var(--space-2); }
+.vent-list { display: grid; }
+.vent-row { border-bottom: 1px solid var(--color-border); }
+.vent-row:last-child { border-bottom: 0; }
+.vent-row summary { display: grid; grid-template-columns: minmax(110px, 170px) minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 9px 4px; cursor: pointer; list-style: none; font-size: var(--text-sm); border-radius: var(--radius-sm); }
+.vent-row summary::-webkit-details-marker { display: none; }
+.vent-row summary:hover { background: var(--color-surface-alt); }
+.vent-row--vide summary { color: var(--color-text-faint); }
+.vent-row__label { font-weight: 650; overflow-wrap: anywhere; }
+.vent-row__bar { position: relative; height: 10px; border-radius: 5px; background: var(--color-surface-sunken); overflow: hidden; }
+.vent-row__fill, .vent-row__cash { position: absolute; left: 0; top: 0; bottom: 0; width: calc(var(--value, 0) * 1%); border-radius: 5px; transition: width 400ms; }
+.vent-row__fill { background: color-mix(in srgb, var(--color-success) 38%, transparent); }
+.vent-row__cash { background: var(--color-success); }
+.vent-row__nums { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; display: grid; }
+.vent-row__nums span { font-size: var(--text-xs); color: var(--color-text-muted); }
+.vent-detail { margin: 0 4px 10px; padding: 6px 10px; border-radius: var(--radius-md); background: var(--color-surface-alt); font-size: var(--text-sm); }
+.vent-detail li { display: flex; gap: 8px; justify-content: space-between; padding: 4px 0; }
+.vent-detail li a { flex: 1; min-width: 0; }
+@media (max-width: 559px) {
+  .vent-row summary { grid-template-columns: minmax(0, 1fr) auto; }
+  .vent-row__bar { grid-column: 1 / -1; grid-row: 2; }
+}
+.contract-total--alerte { background: var(--color-warning-bg); color: var(--color-warning); }
+
+/* ---------- Événements : 4e indicateur « Contacts à rajouter » ---------- */
+.event-stats { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+
+/* ---------- Journal (écran + fiche) ---------- */
+.jmembres { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: var(--space-3); }
+.jmembre { display: grid; gap: 2px; text-align: left; padding: 12px 14px; border: 1px solid var(--color-border); border-radius: var(--radius-lg); background: var(--color-surface); box-shadow: var(--shadow-sm); cursor: pointer; font: inherit; color: var(--color-text); }
+.jmembre:hover { border-color: var(--color-border-strong); }
+.jmembre--actif { border-color: var(--color-accent); box-shadow: inset 0 0 0 1px var(--color-accent); }
+.jmembre__nom { font-weight: 750; }
+.jmembre__mail { font-size: var(--text-xs); color: var(--color-text-muted); overflow-wrap: anywhere; }
+.jmembre__chiffres { font-size: var(--text-xs); margin-top: 4px; }
+.journal-table td { vertical-align: top; }
+.journal-table td:first-child { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.jqui { display: block; min-width: 160px; }
+.jdetail { display: grid; gap: 3px; max-width: 420px; }
+.jdiff { font-size: var(--text-xs); overflow-wrap: anywhere; }
+.jdiff__champ { font-weight: 700; color: var(--color-text-muted); }
+.jdiff__champ::after { content: " :"; }
+.jdiff__fleche { color: var(--color-accent); font-weight: 800; padding: 0 2px; }
+.jlist { display: grid; gap: 2px; }
+.jitem { padding: 8px 10px; border-left: 3px solid var(--color-border); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.jitem:hover { background: var(--color-surface-alt); }
+.jitem__head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: var(--text-sm); }
+.jitem__head .btn { margin-left: auto; }
+.jitem__detail { display: grid; gap: 2px; margin: 4px 0 2px; }
+@media (max-width: 759px) {
+  .journal-table td[data-label="Qui"], .journal-table td[data-label="Détail"] { display: block; text-align: left; }
+  .journal-table td[data-label="Qui"]::before, .journal-table td[data-label="Détail"]::before { display: block; margin-bottom: 2px; }
+  .jdetail { max-width: none; }
+}

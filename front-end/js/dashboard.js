@@ -1,6 +1,6 @@
 // dashboard.js — écran « Tableau de bord » (§4.2). Affichage uniquement : les calculs sont dans selectors.js.
 import { store, ecrire } from "./store.js";
-import { calculerTableauDeBord } from "./selectors.js";
+import { calculerTableauDeBord, calculerVentilation } from "./selectors.js"; // v2 : + ventilation des fonds
 import { aujourdhui } from "./dates.js";
 import { formatEuro, formatDate, escapeHtml, showToast, stageSlug } from "./utils.js";
 import { ficheHref } from "./router.js";
@@ -38,7 +38,7 @@ export function initDashboard() {
     enregistrerReglages({ [cle]: [...liste, v] });
   };
   document.querySelectorAll("[data-add-tag]").forEach((b) => b.addEventListener("click", () => ajouterTag(b.dataset.addTag, b.previousElementSibling)));
-  [["owner-new", "responsables"], ["catalog-new", "catalogue"]].forEach(([id, cle]) => $(id)?.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); ajouterTag(cle, e.target); } }));
+  [["owner-new", "responsables"], ["catalog-new", "catalogue"], ["category-new", "categories"]].forEach(([id, cle]) => $(id)?.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); ajouterTag(cle, e.target); } }));
   $("settings-form")?.addEventListener("click", (e) => {
     const b = e.target.closest("[data-remove-tag]");
     if (!b) return;
@@ -50,7 +50,7 @@ export function initDashboard() {
 const ICONES_TODO = { 1: "wallet", 2: "clock", 3: "receipt", 4: "clock", 5: "alert" };
 
 export function renderDashboard() {
-  const t = calculerTableauDeBord({ partenaires: store.partenaires, echeances: store.echeancesSaison, reglages: store.reglages }, aujourdhui());
+  const t = calculerTableauDeBord({ partenaires: store.partenaires, echeances: store.echeancesSaison, reglages: store.reglages, evenements: store.evenements }, aujourdhui()); // v2 : événements → « Contacts à rajouter »
   const { score, kpis } = t;
 
   // ----- Score de la saison -----
@@ -81,6 +81,8 @@ export function renderDashboard() {
   texte("kpi-delivered", `${kpis.contreparties.livrees} / ${kpis.contreparties.total}`);
   texte("kpi-delivered-sub", `Mécénat ${formatEuro(kpis.contreparties.mecenat)} · CERFA à émettre : ${kpis.contreparties.cerfa}`);
 
+  renderVentilation(); // v2 : affectation des fonds
+
   // ----- À faire : chaque ligne ouvre la fiche -----
   texte("todo-count", String(t.todo.length));
   const todo = $("todo-list");
@@ -90,7 +92,7 @@ export function renderDashboard() {
       : i.montant ? `<span class="due--late">${formatEuro(i.montant)}</span><span class="todo__meta">${i.date ? formatDate(i.date) : ""}</span>`
       : `<span class="${i.ton === "danger" ? "due--late" : i.ton === "warning" ? "due--soon" : "muted"}">${i.date && i.date < "9999" ? formatDate(i.date) : ""}</span>`;
     return `<a class="todo__item" href="${ficheHref(i.partenaireId)}">
-      <span class="todo__dot todo__dot--${ton}">${icon(ICONES_TODO[i.priorite] || "clock", "icon--sm")}</span>
+      <span class="todo__dot todo__dot--${ton}">${icon(i.icone || ICONES_TODO[i.priorite] || "clock", "icon--sm")}</span>
       <span class="todo__text"><span class="todo__main">${escapeHtml(i.titre)}</span><span class="todo__meta">${escapeHtml(i.meta)}</span></span>
       <span class="todo__side">${droite}</span>
     </a>`;
@@ -121,4 +123,39 @@ export function renderDashboard() {
   const o = $("owners-tags"); if (o) o.innerHTML = tags("responsables");
   const c = $("catalog-tags"); if (c) c.innerHTML = tags("catalogue");
   texte("catalog-count", String((store.reglages.catalogue || []).length));
+  const cat = $("categories-tags"); if (cat) cat.innerHTML = tags("categories"); // v2 : catégories d'affectation
+  texte("categories-count", String((store.reglages.categories || []).length));
+}
+
+// =============================================================================
+// v2 — AFFECTATION DES FONDS (« où va l'argent »)
+// =============================================================================
+// Pour chaque catégorie : total affecté (cumul de toutes les fiches signées), part encaissée au prorata,
+// nombre de partenaires et, en dépliant, le détail par partenaire. Exemple : trois partenaires affectent
+// chacun 200 € en « Cotisations » → la ligne Cotisations affiche 600 €.
+function renderVentilation() {
+  const v = calculerVentilation(store.partenaires, store.reglages.categories); // calcul pur (selectors.js)
+  const max = Math.max(1, ...v.lignes.map((l) => l.affecte)); // échelle des barres : la plus grosse catégorie = 100 %
+  texte("vent-sub", v.totalSigne ? `${v.pctAffecte} % du signé réparti${v.aVentiler ? ` · ${v.aVentiler} fiche${v.aVentiler > 1 ? "s" : ""} à ventiler` : ""}` : "Aucun partenaire signé");
+
+  const resume = $("vent-summary");
+  if (resume) resume.innerHTML = [
+    ["Total signé", formatEuro(v.totalSigne), ""],
+    ["Affecté", formatEuro(v.totalAffecte), "success"],
+    ["dont encaissé", formatEuro(v.totalEncaisse), ""],
+    v.depassement ? ["Affecté en trop", formatEuro(v.depassement), "danger"] : ["Reste à affecter", formatEuro(v.nonAffecte), v.nonAffecte ? "warning" : ""]
+  ].map(([l, val, ton]) => `<div class="score__fig kpi ${ton ? `score__fig--${ton}` : ""}"><span class="kpi__label">${l}</span><span class="kpi__value">${val}</span></div>`).join("");
+
+  const liste = $("vent-list"); if (!liste) return;
+  const ouvertes = new Set([...liste.querySelectorAll("details[open]")].map((d) => d.dataset.cat)); // garde les catégories dépliées d'un rendu à l'autre
+  const lignes = v.lignes.filter((l) => l.affecte > 0 || !l.horsListe); // catégories des réglages (même vides) + catégories retirées encore utilisées
+  liste.innerHTML = lignes.map((l) => `
+    <details class="vent-row ${l.affecte ? "" : "vent-row--vide"}" data-cat="${escapeHtml(l.categorie)}" ${ouvertes.has(l.categorie) ? "open" : ""}>
+      <summary>
+        <span class="vent-row__label">${escapeHtml(l.categorie)}${l.horsListe ? ' <span class="badge" title="Catégorie retirée des réglages mais encore utilisée">hors liste</span>' : ""}</span>
+        <span class="vent-row__bar" aria-hidden="true"><span class="vent-row__fill" style="--value:${Math.round((l.affecte / max) * 100)}"></span><span class="vent-row__cash" style="--value:${Math.round((l.encaisse / max) * 100)}"></span></span>
+        <span class="vent-row__nums"><strong>${formatEuro(l.affecte)}</strong><span>${l.affecte ? `${formatEuro(l.encaisse)} encaissés · ${l.nombre} partenaire${l.nombre > 1 ? "s" : ""}` : "—"}</span></span>
+      </summary>
+      ${l.partenaires.length ? `<ul class="vent-detail">${l.partenaires.map((p) => `<li><a href="${ficheHref(p.id)}">${escapeHtml(p.nom)}</a>${p.note ? ` <span class="muted">· ${escapeHtml(p.note)}</span>` : ""}<strong>${formatEuro(p.montant)}</strong></li>`).join("")}</ul>` : `<p class="faint vent-detail">Aucun montant affecté à cette catégorie.</p>`}
+    </details>`).join("") || `<div class="empty">${icon("wallet")}Ajoutez des catégories dans les réglages du club.</div>`;
 }

@@ -17,6 +17,8 @@ import {
 } from "./utils.js";
 import { icon } from "./icons.js";
 import { naviguer } from "./router.js";
+import { colonnePipeline, totalValide } from "./selectors.js"; // v2 : colonne calculée « Encaissé »
+import { logoHtml } from "./logos.js"; // v2 : logo (ou monogramme) sur chaque carte
 
 // Filtre sélectionné pour le responsable (vide = tous)
 let filterOwner = "";
@@ -97,16 +99,18 @@ export function renderPipeline() {
 
   // Génération du balisage HTML de chaque colonne
   root.innerHTML = colonnes.map((col) => {
-    // Filtrage des fiches appartenant à cette étape
-    const cards = partners.filter((p) => p.etape === col.id);
-    // Somme cumulée des montants affichés pour cette étape
-    const total = cards.reduce((sum, p) => sum + montantAffiche(p), 0);
+    // Filtrage des fiches appartenant à cette colonne.
+    // v2 : on passe par colonnePipeline() et non plus par p.etape : une fiche « Signé » intégralement
+    // encaissée est rangée dans la colonne calculée « Encaissé » (voir selectors.js).
+    const cards = partners.filter((p) => colonnePipeline(p) === col.id);
+    // Somme cumulée des montants de la colonne : l'encaissé pour « Encaissé », sinon le montant affiché
+    const total = cards.reduce((sum, p) => sum + (col.id === "Encaissé" ? Number(p.encaisse) || 0 : montantAffiche(p)), 0);
     // Slug CSS de la colonne
     const slug = col.slug || stageSlug(col.id);
 
     // Retourne le gabarit HTML de la colonne avec son en-tête et ses cartes
     return `
-      <section class="kanban__col kanban__col--${escapeHtml(slug)}" data-stage="${escapeHtml(col.id)}" aria-label="${escapeHtml(col.id)}">
+      <section class="kanban__col kanban__col--${escapeHtml(slug)}${col.derivee ? " kanban__col--derivee" : ""}" data-stage="${escapeHtml(col.id)}" ${col.derivee ? 'data-derivee="1"' : ""} aria-label="${escapeHtml(col.id)}">
         <header class="kanban__head">
           <div>
             <h3 class="kanban__title">${escapeHtml(col.id)} <span class="kanban__count">${cards.length}</span></h3>
@@ -115,7 +119,7 @@ export function renderPipeline() {
           <span class="kanban__total">${formatEuro(total)}</span>
         </header>
         <div class="kanban__cards" data-stage="${escapeHtml(col.id)}">
-          ${cards.length ? cards.map(cardHtml).join("") : `<p class="kanban__empty">Déposez une carte ici</p>`}
+          ${cards.length ? cards.map(cardHtml).join("") : `<p class="kanban__empty">${col.derivee ? "Les signés dont toutes les échéances sont payées apparaissent ici" : "Déposez une carte ici"}</p>`}
         </div>
       </section>`;
   }).join("");
@@ -140,10 +144,20 @@ function cardHtml(p) {
         p.prochaineActionDate ? ` · <span class="${due}">${formatDate(p.prochaineActionDate)}${due === "due--late" ? " (en retard)" : ""}</span>` : ""}</span></div>`
     : (["RDV", "Proposition", "Négociation"].includes(p.etape) ? `<div class="pcard__action"><span class="due--late">Aucune prochaine action</span></div>` : "");
 
+  // v2 : progression de l'encaissement sur les cartes signées (le passage à 100 % les déplace dans « Encaissé »)
+  const tv = totalValide(p);
+  const encaissement = p.etape === "Signé" && tv > 0
+    ? `<span class="pcard__cash" title="Encaissé ${formatEuro(p.encaisse)} sur ${formatEuro(tv)}"><span class="meter__track"><span class="meter__fill" style="--value:${Math.min(100, Math.round((p.encaisse / tv) * 100))}"></span></span><small>${p.solde ? "Soldé" : `${formatEuro(p.encaisse)} encaissés`}</small></span>`
+    : "";
+
   return `
     <article class="pcard" draggable="true" data-partner-id="${escapeHtml(p.id)}">
-      <a class="pcard__name" href="${ficheHref(p.id)}">${escapeHtml(p.nom)}</a>
+      <div class="pcard__top">
+        ${logoHtml(p, { taille: "sm" })}
+        <a class="pcard__name" href="${ficheHref(p.id)}">${escapeHtml(p.nom)}</a>
+      </div>
       <span class="pcard__amount">${amount ? formatEuro(amount) : "—"}${meta ? ` <small>${escapeHtml(meta)}</small>` : ""}</span>
+      ${encaissement}
       <div class="pcard__badges">
         ${p.type && p.type !== "Sponsoring" ? `<span class="badge badge--info">${escapeHtml(p.type)}</span>` : ""}
         ${p.secteur ? `<span class="badge">${escapeHtml(p.secteur)}</span>` : ""}
@@ -214,6 +228,14 @@ function bindDragAndDrop(root) {
       const id = e.dataTransfer.getData("text/plain") || draggedId;
       // Récupère l'étape de destination associée à la colonne
       const stage = col.dataset.stage;
+      // v2 : « Encaissé » n'est pas une étape enregistrée. Y déposer une carte la passe en « Signé » ;
+      // elle rejoindra « Encaissé » d'elle-même quand toutes ses échéances seront cochées payées.
+      if (id && col.dataset.derivee) {
+        changerEtape(id, "Signé")
+          .then(() => showToast(store.partenaires.find((p) => p.id === id)?.solde ? "Signé et soldé" : "Passé en « Signé » : cochez les échéances payées pour qu'il rejoigne « Encaissé »"))
+          .catch(() => showToast("Échec du déplacement"));
+        return;
+      }
       // Si l'identifiant et l'étape sont présents, applique le changement avec historisation
       if (id && stage) changerEtape(id, stage).catch(() => showToast("Échec du déplacement"));
     });

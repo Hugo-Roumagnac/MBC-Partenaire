@@ -1,7 +1,9 @@
-// export-excel.js — génère le classeur Excel daté à 6 onglets à partir du store (§4.8).
+// export-excel.js — génère le classeur Excel daté à partir du store (§4.8).
+// 6 onglets d'origine + v2 : « Affectations » (ventilation des fonds) et « Journal » (audit).
 import { jourNumero, aujourdhui } from "./dates.js"; // conversion ISO → numéro de jour
-import { totalValide, totalDemande } from "./selectors.js"; // totaux
+import { totalValide, totalDemande, formaterSiret, colonnePipeline, calculerVentilation, resumerAppareil } from "./selectors.js"; // totaux (v2 : + SIRET, ventilation, journal)
 import { showToast } from "./utils.js"; // message
+import { LIBELLES_TABLES } from "./journal.js"; // v2 : « Fiche », « Échéance »… au lieu des noms techniques
 
 const SOURCES_XLSX = ["./vendor/xlsx.mjs", "https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs"]; // fichier local d'abord, CDN en secours
 
@@ -33,9 +35,9 @@ export async function exporterExcel(store) {
 
   // 1) PARTENAIRES : une ligne par fiche, tous les montants de la saison en cours
   XLSX.utils.book_append_sheet(wb, feuille(XLSX,
-    ["Partenaire", "Secteur", "Étape", "Type", "Responsable", "Premier contact", `Demandé ${reglages.saisonEnCours}`, "Cotisation demandée", "Montant validé", "Cotisation validée", "Total validé", "Dont mécénat", "CERFA émis", "Valeur apport en nature", "Description apport en nature", "Modalités de paiement", "Encaissé", "Reste à encaisser", `Validé ${reglages.saisonPrecedente}`, "Prochaine action (date)", "Prochaine action (texte)", "Notes", "Dernière modification", "Modifié par"],
+    ["Partenaire", "SIRET", "Secteur", "Étape", "Colonne pipeline", "Type", "Responsable", "Premier contact", `Demandé ${reglages.saisonEnCours}`, "Cotisation demandée", "Montant validé", "Cotisation validée", "Total validé", "Dont mécénat", "CERFA émis", "Valeur apport en nature", "Description apport en nature", "Modalités de paiement", "Encaissé", "Reste à encaisser", `Validé ${reglages.saisonPrecedente}`, "Prochaine action (date)", "Prochaine action (texte)", "Notes", "Dernière modification", "Modifié par"],
     store.partenaires.slice().sort((a, b) => a.nom.localeCompare(b.nom, "fr")).map((v) => [
-      v.nom, v.secteur || "", v.etape, v.type || "", v.responsable || "", date(v.premierContact),
+      v.nom, formaterSiret(v.siret), v.secteur || "", v.etape, colonnePipeline(v), v.type || "", v.responsable || "", date(v.premierContact),
       euro(v.montantDemande), euro(v.cotisationDemandee), euro(v.montantValide), euro(v.cotisationValidee), euro(totalValide(v)),
       euro(v.dontMecenat), oui(v.cerfaEmis), euro(v.contrat?.natureValeur), v.contrat?.natureDescription || "", v.contrat?.modalites || "",
       euro(v.encaisse), euro(Math.max(0, totalValide(v) - v.encaisse)), euro(v.montantPrecedent),
@@ -63,6 +65,18 @@ export async function exporterExcel(store) {
   // 6) HISTORIQUE (toutes saisons, plus récent d'abord)
   XLSX.utils.book_append_sheet(wb, feuille(XLSX, ["Partenaire", "Date", "Auteur", "Échange", "Automatique"],
     raw.echanges.slice().sort((a, b) => String(b.date).localeCompare(String(a.date))).map((x) => [nom.get(x.partenaireId) || "?", date(x.date), x.auteur || "", x.texte || "", oui(x.auto)])), "Historique"); // une ligne par échange
+
+  // 7) v2 — AFFECTATIONS : une ligne par affectation (saison en cours), puis le récapitulatif par catégorie
+  XLSX.utils.book_append_sheet(wb, feuille(XLSX, ["Partenaire", "Étape", "Saison", "Catégorie", "Montant", "Note"],
+    raw.affectations.slice().sort(parNom).map((a) => [nom.get(a.partenaireId) || "?", raw.partenaires.find((p) => p.id === a.partenaireId)?.etape || "", a.saison || "", a.categorie || "", euro(a.montant), a.note || ""])), "Affectations");
+  const vent = calculerVentilation(store.partenaires, reglages.categories); // mêmes cumuls que le tableau de bord
+  XLSX.utils.book_append_sheet(wb, feuille(XLSX, ["Catégorie", "Affecté (signés)", "Dont encaissé (prorata)", "Nombre de partenaires"],
+    [...vent.lignes.map((l) => [l.categorie, euro(l.affecte), euro(l.encaisse), l.nombre]), ["Reste à affecter", euro(vent.nonAffecte), "", ""], ["TOTAL SIGNÉ", euro(vent.totalSigne), euro(vent.totalEncaisse), ""]]), "Ventilation");
+
+  // 8) v2 — JOURNAL : entrées chargées (les plus récentes), avec compte et appareil
+  const heure = (iso) => (iso ? { t: "n", v: new Date(iso).getTime() / 86400000 + 25569 - new Date(iso).getTimezoneOffset() / 1440, z: "dd/mm/yyyy hh:mm" } : ""); // horodatage → série Excel (heure locale)
+  XLSX.utils.book_append_sheet(wb, feuille(XLSX, ["Date et heure", "Membre", "Compte (e-mail)", "Appareil", "Action", "Élément", "Partenaire", "Champs modifiés", "Avant", "Après"],
+    store.journal.map((j) => [heure(j.le), j.nom || (j.email ? "" : "Administration"), j.email || "", resumerAppareil(j.appareil), { INSERT: "Création", UPDATE: "Modification", DELETE: "Suppression" }[j.action] || j.action, LIBELLES_TABLES[j.tableNom] || j.tableNom, nom.get(j.partenaireId) || j.partenaireId || "", (j.champs || []).join(", "), JSON.stringify(j.avant ?? ""), JSON.stringify(j.apres ?? "")].map((c) => (typeof c === "string" && c.length > 32000 ? c.slice(0, 32000) : c)))), "Journal"); // Excel limite une cellule à 32 767 caractères
 
   XLSX.writeFile(wb, `MBC-Partenaires_${aujourdhui()}.xlsx`); // déclenche le téléchargement du fichier daté
   showToast("Export généré — rangez-le sur l'espace partagé du club (RGPD)"); // rappel §6

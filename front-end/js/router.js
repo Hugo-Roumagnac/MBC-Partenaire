@@ -1,8 +1,8 @@
 // router.js — routage par hash : choisit l'écran actif et ouvre/ferme la fiche partenaire.
 // URL : #/<ecran>[?fiche=<id>]  ex. #/paiements?fiche=myjob
 
-export const ECRANS = ["dashboard", "pipeline", "partenaires", "paiements", "evenements"]; // les 5 écrans (§4)
-const TITRES = { dashboard: "Tableau de bord", pipeline: "Pipeline", partenaires: "Partenaires", paiements: "Paiements", evenements: "Événements" };
+export const ECRANS = ["dashboard", "pipeline", "partenaires", "paiements", "evenements", "journal"]; // les 5 écrans (§4) + v2 : journal d'audit
+const TITRES = { dashboard: "Tableau de bord", pipeline: "Pipeline", partenaires: "Partenaires", paiements: "Paiements", evenements: "Événements", journal: "Journal" };
 
 const rendus = new Map(); // écran → fonction de rendu
 let premierPassage = true;

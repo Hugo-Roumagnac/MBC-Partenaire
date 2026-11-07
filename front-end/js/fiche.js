@@ -1,16 +1,23 @@
 // fiche.js — contenu de la fiche partenaire (le panneau latéral lui-même est géré par drawer.js).
-import { store, ecrire, ajouter, supprimer, changerEtape, noterHistorique, assurerContrat, appliquerPlanEcheancier, auteur } from "./store.js"; // état + actions
+import { store, ecrire, ajouter, supprimer, changerEtape, noterHistorique, assurerContrat, appliquerPlanEcheancier, auteur, preRemplirAffectations } from "./store.js"; // état + actions (v2 : + ventilation)
 import { totalValide, totalDemande, cerfaAEmettre, montantParDefaut, planifierEcheancier, enCents, enEuros, statutAction } from "./selectors.js"; // règles métier
 import { aujourdhui } from "./dates.js"; // date du jour
 import { creerDrawer } from "./drawer.js"; // mécanisme du panneau
 import { naviguer } from "./router.js"; // navigation par URL
 import { formatEuro, formatDate, escapeHtml, showToast, stageSlug, montantAffiche, montantMeta } from "./utils.js";
 import { icon } from "./icons.js"; // affichage
+// ---- v2 ----
+import { validerSiret, formaterSiret, totalAffecte, proposerAffectations, PRESENCE_CONTACT } from "./selectors.js"; // SIRET, ventilation, statut contact
+import { importerLogo, retirerLogo, logoHtml, verifierFichier } from "./logos.js"; // logos
+import { journalFicheHtml, surClicRestaurer } from "./journal.js"; // journal de la fiche
+import { lienAnnuaire } from "./siret.js"; // recherche du SIRET
+import { ouvrirContactPresence } from "./evenements.js"; // « Contact à rajouter » depuis la fiche
 
 const $ = (id) => document.getElementById(id); // raccourci getElementById
 let idCourant = null; // id de la fiche ouverte (null = fermée)
 let drawer = null; // instance du panneau
 let suppressionArmee = false; // vrai après le 1er clic sur « Supprimer » (confirmation en deux clics)
+let apercuLogo = ""; // v2 : adresse locale (blob:) de l'image en cours d'envoi → affichée tout de suite
 
 const vue = (id) => store.partenaires.find((p) => p.id === id) || null; // vue du partenaire par id
 
@@ -19,10 +26,33 @@ export function initFiche() {
   drawer = creerDrawer(overlay, { onFermer: () => naviguer({ ficheId: null }) }); // fermer = retirer ?fiche= de l'URL
   overlay.addEventListener("change", surChangement); // enregistrement au blur (UNE écoute pour tous les champs)
   overlay.addEventListener("click", surClic); // boutons d'action (ajout, suppression, génération…)
+
+  // v2 : import du logo — par le sélecteur de fichier…
+  $("f-logo-file").addEventListener("change", (e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) envoyerLogo(f); }); // vide l'input : re-choisir le même fichier redéclenche « change »
+  $("section-journal").addEventListener("toggle", () => renderFiche(true)); // v2 : le journal n'est calculé qu'à l'ouverture de sa section
+  // …ou par glisser-déposer d'une image sur le logo de l'en-tête
+  const zone = $("fiche-logo");
+  zone.addEventListener("dragover", (e) => { if ([...(e.dataTransfer?.types || [])].includes("Files")) { e.preventDefault(); zone.classList.add("fiche-logo--drop"); } }); // accepte seulement des fichiers
+  zone.addEventListener("dragleave", () => zone.classList.remove("fiche-logo--drop"));
+  zone.addEventListener("drop", (e) => { e.preventDefault(); zone.classList.remove("fiche-logo--drop"); const f = e.dataTransfer.files?.[0]; if (f) envoyerLogo(f); });
+}
+
+// v2 : import complet d'un logo (étapes détaillées dans logos.js). L'aperçu s'affiche AVANT la fin de l'envoi.
+async function envoyerLogo(fichier) {
+  const id = idCourant; if (!id) return; // fiche fermée entre-temps
+  const erreur = verifierFichier(fichier); // contrôle rapide (type, poids)
+  if (erreur) { showToast(`Valeur invalide : ${erreur}`); return; }
+  $("fiche-logo").classList.add("is-busy"); // indicateur d'envoi
+  try {
+    await importerLogo(id, fichier, { onApercu: (url) => { apercuLogo = url; renderFiche(true); } }); // aperçu immédiat puis stockage
+    showToast("Logo enregistré");
+  } catch (err) { console.error(err); showToast(`Échec de l'import du logo${err?.message ? ` : ${err.message}` : ""}`); }
+  finally { apercuLogo = ""; $("fiche-logo").classList.remove("is-busy"); if (idCourant === id) renderFiche(true); } // la vraie image (store) remplace l'aperçu
 }
 
 export function ouvrirFiche(id) { // appelé par le routeur quand l'URL contient ?fiche=
   if (!vue(id)) { showToast("Fiche introuvable"); naviguer({ ficheId: null }); return; } // id inconnu → on referme
+  if (idCourant !== id) apercuLogo = ""; // v2 : l'aperçu appartient à la fiche précédente
   idCourant = id; // mémorise la fiche ouverte
   suppressionArmee = false; // réinitialise la confirmation de suppression
   drawer.ouvrir(); // affiche le panneau
@@ -45,8 +75,13 @@ async function surChangement(e) {
   const el = e.target.closest("[data-table][data-field]"); // champ concerné (ignore les champs du générateur)
   if (!el || !idCourant) return; // rien à enregistrer
   const { table, field } = el.dataset; // table et colonne visées
-  const valeur = lireValeur(el); // valeur typée
+  let valeur = lireValeur(el); // valeur typée
   if (valeur === undefined) { showToast("Valeur invalide"); renderFiche(true); return; } // refuse et réaffiche l'ancienne valeur
+  if (field === "siret") { // v2 : 14 chiffres + clé de Luhn ; en cas d'erreur on GARDE la saisie pour la corriger
+    const r = validerSiret(valeur);
+    if (!r.valide) { majRetourSiret(r); showToast(`Valeur invalide : ${r.erreur}`); return; }
+    valeur = r.siret; el.value = formaterSiret(r.siret); // normalisé en base, lisible à l'écran
+  }
   if (field === "nom") { // une seule fiche par entreprise : nom obligatoire et unique
     const k = (x) => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
     if (!valeur) { showToast("Valeur invalide : le nom est obligatoire"); renderFiche(true); return; }
@@ -66,6 +101,7 @@ async function surChangement(e) {
 
 // ---------- Actions (boutons) ----------
 async function surClic(e) {
+  if (await surClicRestaurer(e)) return; // v2 : bouton « Restaurer » du journal de la fiche
   const b = e.target.closest("[data-action]"); // bouton cliqué
   if (!b || !idCourant) return; // clic ailleurs
   const v = vue(idCourant), saison = store.reglages.saisonEnCours; // fiche et saison courantes
@@ -104,6 +140,24 @@ async function surClic(e) {
         return;
       }
       case "del-contact": await supprimer("contacts", b.dataset.id); break; // supprime le contact
+      // ---- v2 : logo ----
+      case "logo-choisir": $("f-logo-file").click(); return; // ouvre le sélecteur de fichier du système
+      case "logo-retirer": await retirerLogo(v.id); showToast("Logo retiré"); break; // revient au monogramme
+      // ---- v2 : affectation des fonds ----
+      case "add-affect": { // nouvelle ligne : 1re catégorie non utilisée, montant = reste à affecter
+        const utilisees = new Set(v.affectations.map((a) => a.categorie)); // catégories déjà présentes
+        const categorie = store.reglages.categories.find((c) => !utilisees.has(c)) || store.reglages.categories[0] || "Autre"; // proposition
+        const reste = Math.max(0, enEuros(enCents(totalValide(v)) - enCents(totalAffecte(v)))); // ce qui n'est pas encore réparti
+        await ajouter("affectations", { partenaireId: v.id, saison, categorie, montant: reste, note: "" }); break;
+      }
+      case "del-affect": await supprimer("affectations", b.dataset.id); break; // supprime la ligne
+      case "prefill-affect": { // cotisation → Cotisations, mécénat → Mécénat, reste → Sponsoring
+        const lignes = proposerAffectations(v); // règle pure (selectors.js)
+        if (!lignes.length) { showToast(totalValide(v) > 0 ? "Rien à pré-remplir : ces catégories sont déjà présentes" : "Renseignez d'abord le montant validé du contrat"); return; }
+        await preRemplirAffectations(v.id, lignes); showToast(`${lignes.length} ligne${lignes.length > 1 ? "s" : ""} ajoutée${lignes.length > 1 ? "s" : ""}`); break;
+      }
+      // ---- v2 : « Contact à rajouter » depuis la liste des présences de la fiche ----
+      case "contact-presence": ouvrirContactPresence(b.dataset.id); return;
       case "add-echange": { // échange daté ajouté à la main
         const texte = $("h-text").value.trim(); // texte de l'échange
         if (!texte) { showToast("Saisissez le texte de l'échange"); return; } // obligatoire
@@ -140,6 +194,8 @@ export function renderFiche(forcer = false) {
     v.type ? `<span class="badge">${escapeHtml(v.type)}</span>` : "",
     v.secteur ? `<span class="badge">${escapeHtml(v.secteur)}</span>` : "",
     cerfaAEmettre(v) ? '<span class="badge badge--warning">CERFA à émettre</span>' : "",
+    v.solde ? '<span class="badge badge--encaisse">Encaissé</span>' : "", // v2 : signé et soldé
+    v.etape === "Signé" && !v.siret ? '<span class="badge badge--warning">SIRET manquant</span>' : "", // v2 : utile pour la facture / le CERFA
     v.echeances.some((e) => !e.paye && e.datePrevue && e.datePrevue < jour) ? '<span class="badge badge--danger">Paiement en retard</span>' : "",
     stAction === "late" ? '<span class="badge badge--danger">Action en retard</span>' : ""
   ].join("");
@@ -153,9 +209,21 @@ export function renderFiche(forcer = false) {
     if (!forcer && el === document.activeElement) return;
     const source = el.dataset.table === "contrats" ? v.contrat || { cotisationDemandee: v.cotisationDemandee } : v;
     const valeur = source[el.dataset.field];
+    if (el.dataset.field === "siret") { el.value = formaterSiret(valeur); return; } // v2 : affichage « 123 456 789 00012 »
     if (el.type === "checkbox") el.checked = !!valeur;
     else el.value = el.dataset.field === "responsable" && !valeur ? "—" : valeur ?? "";
   });
+
+  // ---- v2 : logo (en-tête + section Informations) ----
+  const logo = logoHtml(v, { taille: "lg", apercu: apercuLogo }); // aperçu local pendant l'envoi, sinon l'image enregistrée
+  if ($("fiche-logo").innerHTML !== logo) $("fiche-logo").innerHTML = logo; // évite de recharger l'image à chaque rendu
+  if ($("i-logo-preview").innerHTML !== logoHtml(v, { taille: "md", apercu: apercuLogo })) $("i-logo-preview").innerHTML = logoHtml(v, { taille: "md", apercu: apercuLogo });
+  $("i-logo-label").textContent = v.logo ? "Remplacer" : "Importer";
+  $("i-logo-remove").hidden = !v.logo;
+
+  // ---- v2 : SIRET (aide à la recherche + état de validation) ----
+  $("i-siret-annuaire").href = lienAnnuaire(v.nom);
+  if (forcer || document.activeElement !== $("i-siret")) majRetourSiret({ valide: true, siret: v.siret });
 
   // Résumé chiffré
   const m = montantAffiche(v), mention = montantMeta(v), tv = totalValide(v);
@@ -186,6 +254,21 @@ export function renderFiche(forcer = false) {
   $("count-contacts").textContent = v.contacts.length || "";
   $("count-history").textContent = v.echanges.length || "";
 
+  // ---- v2 : affectation des fonds ----
+  const affecte = totalAffecte(v), ecart = enCents(tv) - enCents(affecte); // réparti / reste
+  $("count-affect").textContent = v.affectations.length ? `${formatEuro(affecte)} / ${formatEuro(tv)}` : "";
+  const categories = store.reglages.categories || []; // liste des réglages
+  majListe($("affect-tbody"), v.affectations.length ? v.affectations.map((a) => htmlAffectation(a, categories)).join("") : `<tr><td colspan="4" class="empty-cell">Aucune affectation. « Pré-remplir depuis le contrat » propose une répartition de départ.</td></tr>`, forcer);
+  const totalEl = $("affect-total");
+  totalEl.classList.toggle("contract-total--alerte", !!v.affectations.length && ecart !== 0); // ventilation incomplète ou dépassée
+  totalEl.innerHTML = `<span>Affecté : <strong>${formatEuro(affecte)}</strong></span><span>Total validé : <strong>${formatEuro(tv)}</strong></span>`
+    + (ecart > 0 ? `<span>Reste à affecter : <strong>${formatEuro(enEuros(ecart))}</strong></span>` : ecart < 0 ? `<span class="due--late">Dépassement : ${formatEuro(enEuros(-ecart))}</span>` : v.affectations.length ? `<span class="due--ok">✓ Entièrement ventilé</span>` : "");
+
+  // ---- v2 : journal des modifications de la fiche ----
+  const nbJournal = store.journal.filter((j) => j.partenaireId === v.id).length;
+  $("count-journal").textContent = nbJournal || "";
+  if ($("section-journal").open) majListe($("fiche-journal"), journalFicheHtml(v.id), forcer); // calculé seulement si la section est ouverte
+
   // Listes générées (pas redessinées pendant une saisie, sauf forcer)
   majListe($("schedule-tbody"), v.echeances.length ? v.echeances.slice().sort((a, b) => String(a.datePrevue || "9999").localeCompare(String(b.datePrevue || "9999"))).map((e) => htmlEcheance(e, jour)).join("") : `<tr><td colspan="5" class="empty-cell">Aucune échéance. Utilisez le générateur ci-dessous.</td></tr>`, forcer);
   majListe($("counterparts-list"), v.contreparties.map(htmlContrepartie).join("") || '<li class="faint" style="font-size: var(--text-sm)">Aucune contrepartie.</li>', forcer);
@@ -195,7 +278,14 @@ export function renderFiche(forcer = false) {
 
   const presences = store.evenements.flatMap((evt) => evt.presences.filter((p) => p.partenaireId === v.id).map((p) => ({ evt, p }))).sort((a, b) => String(b.evt.date).localeCompare(String(a.evt.date)));
   $("count-attendance").textContent = presences.length ? `${presences.filter((x) => x.p.presence === "Oui").length} / ${presences.length}` : "";
-  majListe($("fiche-attendance"), presences.map(({ evt, p }) => `<li class="cp-item"><span style="flex:1; font-size: var(--text-sm)"><strong>${escapeHtml(evt.nom)}</strong> <span class="muted">· ${formatDate(evt.date)}</span></span><span class="badge ${p.presence === "Oui" ? "badge--success" : p.presence === "Non" ? "badge--danger" : "badge--warning"}">${escapeHtml(p.presence)}${p.presence === "Oui" ? ` · ${Number(p.personnes) || 0} pers.` : ""}</span></li>`).join("") || '<li class="faint" style="font-size: var(--text-sm)">Aucune invitation pour l\'instant.</li>', true);
+  majListe($("fiche-attendance"), presences.map(({ evt, p }) => `<li class="cp-item"><span style="flex:1; font-size: var(--text-sm)"><strong>${escapeHtml(evt.nom)}</strong> <span class="muted">· ${formatDate(evt.date)}</span></span>${p.presence === PRESENCE_CONTACT ? `<button type="button" class="btn btn--small" data-action="contact-presence" data-id="${escapeHtml(p.id)}">${icon("plus", "icon--sm")}Ajouter le contact</button>` : ""}<span class="badge ${p.presence === "Oui" ? "badge--success" : p.presence === "Non" ? "badge--danger" : p.presence === PRESENCE_CONTACT ? "badge--info" : "badge--warning"}">${escapeHtml(p.presence)}${p.presence === "Oui" ? ` · ${Number(p.personnes) || 0} pers.` : ""}</span></li>`).join("") || '<li class="faint" style="font-size: var(--text-sm)">Aucune invitation pour l\'instant.</li>', true);
+}
+
+// v2 : message sous le champ SIRET (vert si valide, rouge sinon, rien si vide).
+function majRetourSiret(r) {
+  const el = $("i-siret-retour"); if (!el) return;
+  el.textContent = !r.siret ? "Facultatif · 14 chiffres, espaces acceptés" : r.valide ? `✓ SIREN ${r.siret.slice(0, 9)}` : r.erreur;
+  el.className = `field__hint ${r.siret ? (r.valide ? "due--ok" : "due--late") : ""}`;
 }
 
 function majListe(conteneur, html, forcer) {
@@ -246,3 +336,12 @@ const htmlContact = (c) => `<fieldset class="contact-card" style="margin-inline:
     <div class="field"><label>Téléphone<input type="tel" class="input--sm" ${attrs("contacts", c.id, "tel")} value="${escapeHtml(c.tel || "")}"></label></div>
   </div>
 </fieldset>`;
+
+// v2 : ligne d'affectation des fonds (catégorie / montant / note). Les catégories viennent des réglages ;
+// une catégorie retirée des réglages reste affichée sur les lignes qui l'utilisent déjà.
+const htmlAffectation = (a, categories) => `<tr>
+  <td><select class="input--sm" ${attrs("affectations", a.id, "categorie")} aria-label="Catégorie">${[...new Set([...categories, a.categorie].filter(Boolean))].map((c) => `<option ${c === a.categorie ? "selected" : ""}>${escapeHtml(c)}</option>`).join("")}</select></td>
+  <td class="num"><input type="number" min="0" step="0.01" ${attrs("affectations", a.id, "montant")} value="${Number(a.montant) || 0}" aria-label="Montant affecté" style="max-width:110px; text-align:right"></td>
+  <td><input type="text" ${attrs("affectations", a.id, "note")} value="${escapeHtml(a.note || "")}" placeholder="Ex. : maillots U15" aria-label="Note"></td>
+  <td><button type="button" class="btn btn--ghost btn--icon btn--small" data-action="del-affect" data-id="${escapeHtml(a.id)}" aria-label="Supprimer la ligne ${escapeHtml(a.categorie)}" title="Supprimer">${icon("x", "icon--sm")}</button></td>
+</tr>`;

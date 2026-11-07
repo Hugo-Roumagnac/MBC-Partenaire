@@ -3,12 +3,34 @@ import { CONFIG } from "./config.js"; // mode et identifiants
 import { seedTables } from "./mock-seed.js"; // données de départ du mode mock
 import { genererJeton, empreinte, normaliserEmail, emailValide, jetonPlausible, DUREE_INVITATION_HEURES } from "./invitations-core.js"; // invitations
 
-export const TABLES = ["partenaires", "contrats", "echeances", "contreparties", "contacts", "echanges", "evenements", "presences", "reglages", "membres"]; // toutes les tables lues
+export const TABLES = ["partenaires", "contrats", "echeances", "contreparties", "contacts", "echanges", "evenements", "presences", "reglages", "membres", "affectations", "journal"]; // toutes les tables lues (v2 : + affectations, journal)
+export const TABLES_ENFANTS = ["contrats", "echeances", "contreparties", "contacts", "echanges", "presences", "affectations"]; // tables rattachées à une fiche (supprimées en cascade avec elle)
+export const JOURNAL_MAX = 1000; // v2 : nombre d'entrées de journal chargées (les plus récentes) — le reste reste consultable dans Supabase
+const CHAMPS_TECHNIQUES = ["modifieLe", "modifiePar", "creeLe"]; // v2 : ignorés par le journal (comme dans le trigger SQL)
 
 const toCamel = (s) => s.replace(/_([a-z])/g, (_, c) => c.toUpperCase()); // "date_prevue" → "datePrevue"
 const toSnake = (s) => s.replace(/[A-Z]/g, (c) => "_" + c.toLowerCase()); // "datePrevue" → "date_prevue"
 const mapKeys = (obj, fn) => Object.fromEntries(Object.entries(obj || {}).map(([k, v]) => [fn(k), v])); // renomme les clés d'un objet
 const pk = (table) => (table === "membres" ? "email" : "id"); // clé primaire de chaque table
+
+// v2 : normalise une ligne lue en base. Pour le journal, les colonnes « avant » / « apres » sont des
+// objets JSON dont les clés sont en snake_case (to_jsonb côté SQL) : on les convertit aussi en camelCase,
+// pour que le front (restauration, affichage) manipule partout les mêmes noms de champs.
+function normaliser(table, ligne) {
+  const l = mapKeys(ligne, toCamel); // colonnes de premier niveau
+  if (table !== "journal") return l; // cas général
+  if (l.avant) l.avant = mapKeys(l.avant, toCamel); // anciennes valeurs
+  if (l.apres) l.apres = mapKeys(l.apres, toCamel); // nouvelles valeurs
+  l.champs = (l.champs || []).map(toCamel); // liste des colonnes modifiées
+  return l;
+}
+
+// v2 : membre connecté, mémorisé pour signer les entrées du journal en mode mock
+// (en mode supabase, c'est le trigger SQL qui lit l'e-mail dans le jeton JWT).
+// On mémorise une FONCTION de lecture (et non une copie) : le nom du membre n'est connu qu'après le chargement des données.
+let lireSession = () => null;
+export const definirSession = (lecteur) => { lireSession = lecteur; };
+let diffusionLocale = null; // v2 (mock) : fonction du store qui reçoit les entrées de journal créées DANS cet onglet
 
 let client = null; // client Supabase (mode "supabase" uniquement)
 
@@ -26,12 +48,17 @@ export const getClient = () => client; // auth.js en a besoin
 async function lireToutSupabase(table) {
   const lignes = []; // accumulateur
   for (let debut = 0; ; debut += 1000) { // Supabase plafonne à 1000 lignes par requête → on pagine
+    if (table === "journal") { // v2 : le journal grossit sans fin → seulement les JOURNAL_MAX entrées les plus récentes
+      const { data, error } = await client.from(table).select("*").order("le", { ascending: false }).limit(JOURNAL_MAX); // une seule requête
+      if (error) throw error; // remonte l'erreur
+      lignes.push(...data); break; // pas de pagination
+    }
     const { data, error } = await client.from(table).select("*").range(debut, debut + 999); // une page
     if (error) throw error; // remonte l'erreur au store
     lignes.push(...data); // ajoute la page
     if (data.length < 1000) break; // dernière page atteinte
   }
-  return lignes.map((l) => mapKeys(l, toCamel)); // snake_case → camelCase
+  return lignes.map((l) => normaliser(table, l)); // snake_case → camelCase (y compris avant/après du journal)
 }
 
 export async function loadAll() {
@@ -78,7 +105,7 @@ export function subscribe(onEvent, onStatus) {
     TABLES.forEach((table) => { // abonnement par table
       canal.on("postgres_changes", { event: "*", schema: "public", table }, (p) => { // chaque changement Postgres
         const ligne = p.eventType === "DELETE" ? p.old : p.new; // DELETE ne fournit que l'ancienne ligne
-        onEvent({ table, type: p.eventType, row: mapKeys(ligne, toCamel) }); // normalise et transmet
+        onEvent({ table, type: p.eventType, row: normaliser(table, ligne) }); // normalise et transmet
       });
     });
     canal.subscribe((statut) => onStatus?.(statut)); // état de la connexion websocket
@@ -86,11 +113,13 @@ export function subscribe(onEvent, onStatus) {
   }
   const ecouteur = (e) => { // mode mock : on simule le temps réel entre onglets via l'évènement « storage »
     if (e.key !== "mbc:evt" || !e.newValue) return; // seul notre canal nous intéresse
-    onEvent(JSON.parse(e.newValue).evt); // rejoue l'évènement écrit par l'autre onglet
+    const message = JSON.parse(e.newValue); // { t, evts: [...] } (v2 : plusieurs évènements par message)
+    (message.evts || [message.evt]).filter(Boolean).forEach(onEvent); // rejoue chaque évènement écrit par l'autre onglet
   };
   window.addEventListener("storage", ecouteur); // « storage » ne se déclenche QUE dans les autres onglets
+  diffusionLocale = onEvent; // v2 : les entrées de journal de CET onglet passent par la même fonction
   setTimeout(() => onStatus?.("SUBSCRIBED"), 0); // le mock est « connecté » immédiatement
-  return () => window.removeEventListener("storage", ecouteur); // désabonnement
+  return () => { window.removeEventListener("storage", ecouteur); diffusionLocale = null; }; // désabonnement
 }
 
 // ---------- Implémentation « mock » (localStorage) ----------
@@ -108,13 +137,24 @@ function lireToutLocal() {
 function ecrireLocal(table, type, ligne) {
   let lignes = lireTable(table); // table courante
   const id = ligne[pk(table)]; // clé de la ligne visée
+  const avant = lignes.find((l) => l[pk(table)] === id) || null; // v2 : état AVANT écriture (pour le journal)
   if (type === "DELETE") lignes = lignes.filter((l) => l[pk(table)] !== id); // retire la ligne
-  else if (lignes.some((l) => l[pk(table)] === id)) lignes = lignes.map((l) => (l[pk(table)] === id ? { ...l, ...ligne } : l)); // fusionne le patch
+  else if (avant) lignes = lignes.map((l) => (l[pk(table)] === id ? { ...l, ...ligne } : l)); // fusionne le patch
   else lignes.push(ligne); // ajoute la ligne
   ecrireTable(table, lignes); // persiste
-  const finale = type === "DELETE" ? ligne : lignes.find((l) => l[pk(table)] === id); // ligne finale
-  if (type === "DELETE" && table === "partenaires") ["contrats", "echeances", "contreparties", "contacts", "echanges", "presences"].forEach((t) => ecrireTable(t, lireTable(t).filter((l) => l.partenaireId !== id))); // simule le « on delete cascade »
-  try { localStorage.setItem("mbc:evt", JSON.stringify({ t: Date.now(), evt: { table, type, row: finale } })); } catch { /* ignore */ } // diffuse aux autres onglets
+  const finale = type === "DELETE" ? avant || ligne : lignes.find((l) => l[pk(table)] === id); // ligne finale
+  const le = new Date().toISOString(); // même horodatage pour la ligne et ses enfants supprimés en cascade
+  const evts = [{ table, type, row: type === "DELETE" ? ligne : finale }]; // évènements diffusés aux autres onglets
+  const action = type === "DELETE" ? "DELETE" : avant && type === "UPDATE" ? "UPDATE" : "INSERT"; // action réellement effectuée
+  const journal = [journaliserLocal(table, action, action === "INSERT" ? null : avant, action === "DELETE" ? null : finale, le)]; // v2 : simule le trigger SQL
+  if (type === "DELETE" && table === "partenaires") TABLES_ENFANTS.forEach((t) => { // simule le « on delete cascade »
+    const [enfants, autres] = lireTable(t).reduce((acc, l) => (acc[l.partenaireId === id ? 0 : 1].push(l), acc), [[], []]); // sépare les lignes du partenaire
+    ecrireTable(t, autres); // retire les enfants
+    enfants.forEach((l) => journal.push(journaliserLocal(t, "DELETE", l, null, le))); // et trace chaque suppression (comme le trigger)
+  });
+  journal.filter(Boolean).forEach((j) => evts.push({ table: "journal", type: "INSERT", row: j })); // les entrées du journal suivent le même canal
+  try { localStorage.setItem("mbc:evt", JSON.stringify({ t: Date.now(), evts })); } catch { /* ignore */ } // diffuse aux autres onglets
+  evts.filter((e) => e.table === "journal").forEach((e) => diffusionLocale?.(e)); // « storage » ne prévient pas l'onglet courant : on lui transmet le journal directement
   return finale; // renvoie la ligne enregistrée
 }
 
@@ -197,4 +237,59 @@ async function trouverInvitationLocale(jeton) {
     return { ok: false, code: "expiree", message: "Cette invitation a expiré." };
   }
   return { ok: true, invitation: inv };
+}
+
+// ---------- v2 : journal d'audit en mode mock ----------
+// Reproduit À L'IDENTIQUE le trigger SQL public.journaliser() (voir supabase/schema.sql §2 bis),
+// pour que l'écran « Journal » et la restauration fonctionnent aussi hors ligne.
+const JOURNAL_MAX_LOCAL = 2000; // plafond local (le localStorage est limité à ~5 Mo)
+const pourJournal = (v) => (typeof v === "string" && v.startsWith("data:") ? "(image importée)" : v); // ne recopie pas les logos en base64 dans le journal
+
+function journaliserLocal(table, action, avant, apres, le) {
+  if (table === "journal" || table === "membres") return null; // le journal ne se journalise pas ; les membres sont gérés par l'administrateur
+  let champs = [], av = avant, ap = apres; // valeurs à enregistrer
+  if (action === "UPDATE") { // seulement les champs réellement modifiés, hors champs techniques
+    champs = Object.keys(apres).filter((k) => !CHAMPS_TECHNIQUES.includes(k) && JSON.stringify(avant?.[k] ?? null) !== JSON.stringify(apres[k] ?? null));
+    if (!champs.length) return null; // rien de significatif
+    av = Object.fromEntries(champs.map((k) => [k, pourJournal(avant?.[k] ?? null)])); // anciennes valeurs
+    ap = Object.fromEntries(champs.map((k) => [k, pourJournal(apres[k] ?? null)])); // nouvelles valeurs
+  } else { // INSERT / DELETE : ligne complète (sans les images)
+    av = avant ? Object.fromEntries(Object.entries(avant).map(([k, v]) => [k, pourJournal(v)])) : null;
+    ap = apres ? Object.fromEntries(Object.entries(apres).map(([k, v]) => [k, pourJournal(v)])) : null;
+  }
+  const ligne = apres || avant || {}; // ligne de référence
+  const entree = {
+    id: crypto.randomUUID(), le, // identifiant + horodatage
+    email: lireSession()?.email || "", nom: lireSession()?.nom || "", appareil: navigator.userAgent, // QUI et DEPUIS QUEL compte / appareil
+    action, tableNom: table, ligneId: String(ligne[pk(table)] ?? ""), // QUOI
+    partenaireId: table === "partenaires" ? ligne.id : ligne.partenaireId ?? null, // sur quelle fiche
+    avant: av, apres: ap, champs // le détail
+  };
+  const tout = [entree, ...lireTable("journal")].slice(0, JOURNAL_MAX_LOCAL); // le plus récent en tête, plafonné
+  ecrireTable("journal", tout); // persiste
+  return entree; // diffusée aux autres onglets
+}
+
+// ---------- v2 : stockage des logos ----------
+// Le navigateur a déjà redimensionné et converti l'image (voir logos.js) ; ici on ne fait que la RANGER
+// et renvoyer l'adresse à écrire dans partenaires.logo. Le reste du code affiche cette adresse dans un
+// <img src> sans savoir d'où elle vient : URL https (Supabase Storage) ou « data: » (mode mock).
+export async function deposerLogo(partenaireId, blob) {
+  if (CONFIG.MODE === "supabase") { // base réelle : bucket « logos » (schema.sql §3 bis)
+    const ext = blob.type === "image/png" ? "png" : blob.type === "image/jpeg" ? "jpg" : "webp"; // extension selon le format produit
+    const chemin = `${partenaireId}/${Date.now()}.${ext}`; // un NOUVEAU fichier à chaque import → jamais de cache périmé
+    const { error } = await client.storage.from("logos").upload(chemin, blob, { contentType: blob.type, cacheControl: "31536000", upsert: false }); // dépôt
+    if (error) throw error; // droits, taille, réseau…
+    return client.storage.from("logos").getPublicUrl(chemin).data.publicUrl; // URL publique stable
+  }
+  return new Promise((ok, ko) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = () => ko(r.error); r.readAsDataURL(blob); }); // mock : image encodée en base64 (« data:image/webp;base64,… »)
+}
+
+// Supprime l'ancien fichier d'un logo remplacé ou retiré (best-effort : un échec laisse juste un fichier orphelin).
+export async function supprimerFichierLogo(url) {
+  if (CONFIG.MODE !== "supabase" || !url) return; // en mock, l'image vit dans la ligne : rien à faire
+  const repere = "/object/public/logos/"; // forme des URL publiques Supabase
+  const i = url.indexOf(repere); if (i < 0) return; // URL étrangère : on n'y touche pas
+  const chemin = decodeURIComponent(url.slice(i + repere.length).split("?")[0]); // « <id>/<horodatage>.webp »
+  await client.storage.from("logos").remove([chemin]).catch(() => {}); // on ignore les erreurs
 }

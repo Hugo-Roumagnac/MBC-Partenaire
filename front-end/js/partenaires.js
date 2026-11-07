@@ -4,6 +4,10 @@ import { ficheHref, naviguer } from "./router.js";
 import { ETAPES_NEGOCIATION, totalValide } from "./selectors.js";
 import { formatEuro, formatDate, dueClass, stageSlug, montantAffiche, montantMeta, escapeHtml, showToast, remplirResponsables } from "./utils.js";
 import { ouvrirModale, fermerModale } from "./modal.js";
+import { icon } from "./icons.js"; // v2 : icônes du bouton SIRET
+import { validerSiret, formaterSiret } from "./selectors.js"; // v2 : règle SIRET
+import { ouvrirSiret } from "./siret.js"; // v2 : fenêtre de saisie rapide du SIRET
+import { logoHtml } from "./logos.js"; // v2 : logo (ou monogramme) dans la liste
 
 // Filtres d'état (§4.4)
 const FILTERS = {
@@ -13,6 +17,7 @@ const FILTERS = {
   prospects: (p) => p.etape === "Prospect" || p.etape === "Contacté",
   perdus: (p) => p.etape === "Perdu",
   archives: (p) => p.etape === "Archivé",
+  "sans-siret": (p) => p.etape !== "Archivé" && p.etape !== "Perdu" && !p.siret, // v2 : fiches actives à compléter
   tous: () => true
 };
 
@@ -28,6 +33,7 @@ export function ouvrirNouveauPartenaire(nom = "") {
   form.reset();
   remplirResponsables($("np-resp"));
   $("np-duplicate").hidden = true;
+  $("np-siret-retour").textContent = ""; // v2 : efface le retour de validation précédent
   if (nom) form.nom.value = nom;
   ouvrirModale(modal);
 }
@@ -63,6 +69,8 @@ export function initPartenaires() {
 
   // Clic sur une ligne → ouvre la fiche
   $("partners-tbody")?.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-siret]"); // v2 : bouton SIRET de la ligne → fenêtre dédiée (sans ouvrir la fiche)
+    if (b) { ouvrirSiret(b.dataset.siret); return; }
     if (e.target.closest("a")) return;
     const tr = e.target.closest("tr[data-partner-id]");
     if (tr) naviguer({ ficheId: tr.dataset.partnerId });
@@ -81,18 +89,29 @@ export function initPartenaires() {
   });
   alerte.addEventListener("click", (e) => { if (e.target.closest("[data-close-dup]")) fermerModale($("modal-new-partner")); });
 
+  // v2 : SIRET de la nouvelle fiche, vérifié pendant la saisie (message seulement quand les 14 chiffres sont là)
+  const retourSiret = $("np-siret-retour");
+  form.siret.addEventListener("input", () => {
+    const r = validerSiret(form.siret.value);
+    retourSiret.textContent = !r.siret ? "" : r.siret.length < 14 ? `${r.siret.length} / 14 chiffres` : r.valide ? `✓ ${formaterSiret(r.siret)}` : r.erreur;
+    retourSiret.className = `field__hint ${r.siret.length === 14 ? (r.valide ? "due--ok" : "due--late") : ""}`;
+  });
+
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const nom = form.nom.value.trim();
     if (!nom) { form.nom.focus(); showToast("Le nom est obligatoire", { erreur: true }); return; }
     const d = doublon(nom);
     if (d) { alerte.hidden = false; form.nom.focus(); return; }
+    const siret = validerSiret(form.siret.value); // v2 : SIRET facultatif mais, s'il est saisi, il doit être valide
+    if (!siret.valide) { form.siret.focus(); showToast(`Valeur invalide : ${siret.erreur}`); return; }
     const bouton = form.querySelector("[type=submit]");
     bouton.disabled = true;
     try {
       const p = await creerPartenaire({
         nom,
         secteur: form.secteur.value.trim(),
+        siret: siret.siret, // v2 : normalisé (14 chiffres sans espace) ou ""
         etape: form.etape.value || "Prospect",
         type: form.type.value || "Sponsoring",
         responsable: form.responsable.value,
@@ -114,7 +133,7 @@ function filtered(fn = FILTERS[currentFilter] || FILTERS.tous) {
     if (owner === "none" && p.responsable) return false;
     if (owner && owner !== "none" && p.responsable !== owner) return false;
     if (!query) return true;
-    const blob = norm([p.nom, p.secteur, p.type, p.responsable, p.notes, p.etape, ...(p.contacts || []).map((c) => `${c.nom} ${c.fonction} ${c.email} ${c.tel}`)].join(" "));
+    const blob = norm([p.nom, p.secteur, p.type, p.responsable, p.notes, p.etape, p.siret, ...(p.contacts || []).map((c) => `${c.nom} ${c.fonction} ${c.email} ${c.tel}`)].join(" "));
     return blob.includes(query);
   });
 }
@@ -124,6 +143,7 @@ function valueForSort(p, key) {
   if (key === "encaisse") return Number(p.encaisse) || 0;
   if (key === "contreparties") return p.contrepartiesTotal ? p.contrepartiesLivrees / p.contrepartiesTotal : -1;
   if (key === "action") return p.prochaineActionDate || "9999";
+  if (key === "siret") return p.siret || "~"; // v2 : sans SIRET en dernier (tri croissant)
   if (key === "etape") return ["Prospect", "Contacté", "RDV", "Proposition", "Négociation", "Signé", "Perdu", "Archivé"].indexOf(p.etape);
   return p[key] || "";
 }
@@ -151,7 +171,7 @@ export function renderTable() {
   if (count) count.textContent = `${rows.length} fiche${rows.length > 1 ? "s" : ""} affichée${rows.length > 1 ? "s" : ""} sur ${store.partenaires.length}`;
 
   if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="7" class="empty-cell">Aucun partenaire ne correspond à ces critères.${query ? ` <a href="#" data-quick="new-partner">Créer « ${escapeHtml(document.getElementById("partner-search").value.trim())} »</a>` : ""}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" class="empty-cell">Aucun partenaire ne correspond à ces critères.${query ? ` <a href="#" data-quick="new-partner">Créer « ${escapeHtml(document.getElementById("partner-search").value.trim())} »</a>` : ""}</td></tr>`;
     return;
   }
 
@@ -166,11 +186,19 @@ export function renderTable() {
     return `
       <tr data-partner-id="${escapeHtml(p.id)}" class="partners-row">
         <td class="td--main">
-          <a class="link-fiche" href="${ficheHref(p.id)}">${escapeHtml(p.nom)}</a>
-          <span class="table__sub">${escapeHtml([p.type, p.secteur].filter(Boolean).join(" · "))}${p.premierContact ? ` · 1er contact ${formatDate(p.premierContact)}` : ""}</span>
+          <span class="partner-cell">
+            ${logoHtml(p, { taille: "md" })}
+            <span>
+              <a class="link-fiche" href="${ficheHref(p.id)}">${escapeHtml(p.nom)}</a>
+              <span class="table__sub">${escapeHtml([p.type, p.secteur].filter(Boolean).join(" · "))}${p.premierContact ? ` · 1er contact ${formatDate(p.premierContact)}` : ""}</span>
+            </span>
+          </span>
         </td>
         <td data-label="Étape"><span class="badge badge--${stageSlug(p.etape)}">${escapeHtml(p.etape)}</span></td>
         <td data-label="Responsable">${p.responsable ? escapeHtml(p.responsable) : '<span class="faint">—</span>'}</td>
+        <td data-label="SIRET">${p.siret
+          ? `<button type="button" class="siret-btn" data-siret="${escapeHtml(p.id)}" title="Modifier le SIRET de ${escapeHtml(p.nom)}"><span class="siret-btn__num">${escapeHtml(formaterSiret(p.siret))}</span>${icon("pencil", "icon--sm")}</button>`
+          : `<button type="button" class="btn btn--small btn--ghost siret-btn--vide" data-siret="${escapeHtml(p.id)}" aria-label="Ajouter le SIRET de ${escapeHtml(p.nom)}">${icon("plus", "icon--sm")}SIRET</button>`}</td>
         <td data-label="Montant" class="num"><strong>${amount ? formatEuro(amount) : "—"}</strong>${meta ? `<span class="table__sub">${escapeHtml(meta)}</span>` : ""}</td>
         <td data-label="Encaissé / prévu">${encaisse}</td>
         <td data-label="Contreparties">${cp}</td>

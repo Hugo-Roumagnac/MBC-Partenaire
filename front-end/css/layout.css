@@ -114,7 +114,8 @@ body[data-screen="dashboard"] #screen-dashboard,
 body[data-screen="pipeline"] #screen-pipeline,
 body[data-screen="partenaires"] #screen-partenaires,
 body[data-screen="paiements"] #screen-paiements,
-body[data-screen="evenements"] #screen-evenements { display: block; }
+body[data-screen="evenements"] #screen-evenements,
+body[data-screen="journal"] #screen-journal { display: block; } /* v2 : écran Journal */
 @keyframes screen-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
 .screen__head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-5); }

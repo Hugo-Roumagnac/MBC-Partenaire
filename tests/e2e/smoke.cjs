@@ -127,6 +127,74 @@ const URL = BASE + "app.html";
   await A.waitForFunction(() => document.getElementById("h-event-detail").textContent === "Afterwork E2E");
   assert.ok(await A.locator("#attendance-tbody tr[data-presence-id]").count() > 0, "Les signés doivent être pré-invités");
 
+  // ===========================================================================
+  // v2 — NOUVELLES FONCTIONNALITÉS
+  // ===========================================================================
+  console.log("v2 — Pipeline : colonne « Encaissé » juste après « Signé »...");
+  await A.goto(URL + "#/pipeline");
+  const colonnes = await A.$$eval(".kanban__col", (cs) => cs.map((c) => c.dataset.stage));
+  assert.equal(colonnes[colonnes.indexOf("Signé") + 1], "Encaissé", "La colonne Encaissé doit suivre Signé");
+  assert.ok(await A.locator('.kanban__col[data-stage="Encaissé"] .pcard').count() > 0, "Les signés soldés doivent apparaître dans Encaissé");
+
+  console.log("v2 — SIRET : refus d'un numéro invalide, enregistrement d'un valide depuis la liste...");
+  await A.goto(URL + "#/partenaires");
+  await A.click('[data-siret="entreprise-test-e2e"]');
+  await A.fill("#siret-input", "732 829 320 00075"); // clé de Luhn fausse
+  await A.click("#form-siret [type=submit]");
+  await A.waitForSelector("#siret-retour.alert--danger");
+  await A.fill("#siret-input", "732 829 320 00074"); // valide
+  await A.click("#form-siret [type=submit]");
+  await A.waitForFunction(() => document.getElementById("modal-siret").hidden);
+  await A.waitForFunction(() => /732 829 320 00074/.test(document.querySelector('[data-siret="entreprise-test-e2e"]')?.textContent || ""));
+
+  console.log("v2 — Logo : import, affichage immédiat dans la fiche, la liste et chez l'autre membre...");
+  await A.goto(URL + "#/partenaires?fiche=entreprise-test-e2e");
+  await A.waitForSelector("#fiche-partenaire.is-open");
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAJUlEQVR4nGP8z8DwnwEJMDEwMDCgC2BXgFUSqwJ0SawKcCsAAKnOBRV0yC8dAAAAAElFTkSuQmCC", "base64");
+  await A.setInputFiles("#f-logo-file", { name: "logo.png", mimeType: "image/png", buffer: png });
+  await A.waitForSelector("#fiche-logo .plogo--img img");
+  assert.match(await A.getAttribute("#fiche-logo img", "src"), /^(data:image\/(webp|png)|blob:)/);
+  await B.goto(URL + "#/partenaires");
+  await B.waitForSelector('tr[data-partner-id="entreprise-test-e2e"] .plogo--img img', { timeout: 4000 }); // temps réel inter-onglets
+
+  console.log("v2 — Affectation des fonds : ajout d'une ligne et cumul au tableau de bord...");
+  await A.goto(URL + "#/dashboard");
+  const avantVent = await A.textContent("#vent-summary");
+  await A.goto(URL + "#/partenaires?fiche=harmonie");
+  await A.waitForSelector("#fiche-partenaire.is-open");
+  await A.locator("summary", { hasText: "Affectation des fonds" }).click();
+  const nbAff = await A.locator("#affect-tbody tr [data-field=categorie]").count();
+  await A.click("[data-action=add-affect]");
+  await A.waitForFunction((n) => document.querySelectorAll("#affect-tbody tr [data-field=categorie]").length === n + 1, nbAff);
+  const montant = A.locator("#affect-tbody [data-field=montant]").last();
+  await montant.fill("150"); await montant.press("Tab");
+  await A.waitForSelector("#toast.toast--visible");
+  await A.keyboard.press("Escape");
+  await A.goto(URL + "#/dashboard");
+  assert.notEqual(await A.textContent("#vent-summary"), avantVent, "Les totaux par catégorie doivent suivre la saisie");
+
+  console.log("v2 — Événements : « Contact à rajouter » ouvre la fiche contact...");
+  await A.goto(URL + "#/evenements");
+  const ligne = A.locator("#attendance-tbody tr[data-presence-id]").first();
+  await ligne.locator("[data-field=presence]").selectOption("Contact à rajouter");
+  await A.waitForSelector("#modal-contact:not([hidden])");
+  await A.fill("#ct-nom", "Contact E2E");
+  await A.click("#form-contact [type=submit]");
+  await A.waitForFunction(() => document.getElementById("modal-contact").hidden);
+
+  console.log("v2 — Journal : qui / quoi / compte, puis restauration d'une valeur...");
+  await A.goto(URL + "#/journal");
+  await A.waitForSelector("#journal-liste tr");
+  assert.match(await A.textContent("#journal-liste"), /thomas@exemple\.fr/, "Le compte auteur doit apparaître");
+  assert.match(await A.textContent("#journal-liste"), /Contact E2E/, "La création du contact doit être tracée");
+  await A.goto(URL + "#/partenaires?fiche=entreprise-test-e2e");
+  await A.waitForSelector("#fiche-partenaire.is-open");
+  await A.locator("summary", { hasText: "Journal des modifications" }).click();
+  const restaurer = A.locator("#fiche-journal .jitem", { hasText: "SIRET" }).locator("[data-restaurer]").first();
+  await restaurer.click(); await restaurer.click(); // confirmation en deux clics
+  await A.waitForFunction(() => document.getElementById("i-siret").value === "");
+  await A.keyboard.press("Escape");
+
   console.log("Test de synchronisation inter-onglets sur Paiements...");
   await A.goto(URL + "#/paiements");
   await B.goto(URL + "#/paiements");
