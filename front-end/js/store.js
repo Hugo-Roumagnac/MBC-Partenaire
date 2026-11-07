@@ -1,7 +1,7 @@
 // store.js — état en mémoire + abonnement temps réel. Seule source de vérité des écrans.
 import * as api from "./api.js"; // couche d'accès aux données
 import { aujourdhui } from "./dates.js"; // date du jour (ISO local)
-import { COTISATION_PAR_DEFAUT, enEuros, enCents, estSolde } from "./selectors.js"; // constantes, conversions et règles
+import { COTISATION_PAR_DEFAUT, enEuros, enCents, estSolde, normaliserPresence, aContacterParPartenaire } from "./selectors.js"; // constantes, conversions et règles (v3 : + statut « Contacter »)
 import { slugify } from "./utils.js"; // identifiant lisible à partir d'un nom
 
 const vide = () => Object.fromEntries(api.TABLES.map((t) => [t, []])); // { partenaires: [], contrats: [], ... }
@@ -27,6 +27,8 @@ function reconstruire() {
   store.reglages = { ...store.reglages, ...(raw.reglages[0] || {}) }; // réglages (une seule ligne)
   const { saisonEnCours: N, saisonPrecedente: P } = store.reglages; // saison courante et précédente
   const grouper = (lignes) => { const m = new Map(); for (const l of lignes) { (m.get(l.partenaireId) || m.set(l.partenaireId, []).get(l.partenaireId)).push(l); } return m; }; // regroupe par partenaire
+  raw.presences.forEach((x) => { x.presence = normaliserPresence(x.presence); }); // v3 : « Contact à rajouter » (ancienne valeur) → « Contacter »
+  const documents = grouper(raw.documents || []); // v3 : documents par partenaire
   const contrats = grouper(raw.contrats), echeances = grouper(raw.echeances.filter((e) => e.saison === N)), cps = grouper(raw.contreparties.filter((c) => c.saison === N)), contacts = grouper(raw.contacts), echanges = grouper(raw.echanges); // index par partenaire
 
   store.partenaires = raw.partenaires.map((p) => { // une vue par fiche (v2 : complétée juste après par « solde »)
@@ -43,6 +45,8 @@ function reconstruire() {
       montantDemande: c?.montantDemande ?? 0, cotisationDemandee: c?.cotisationDemandee ?? COTISATION_PAR_DEFAUT, // demandé
       montantValide: c?.montantValide ?? 0, cotisationValidee: c?.cotisationValidee ?? 0, // validé
       dontMecenat: c?.dontMecenat ?? 0, cerfaEmis: !!c?.cerfaEmis, // mécénat + CERFA
+      natureValeur: c?.natureValeur ?? 0, // v3 : apport en nature (ventilation du tableau de bord)
+      documents: (documents.get(p.id) || []).sort((a, b) => String(b.creeLe).localeCompare(String(a.creeLe))), // v3 : convention + autres documents, récent d'abord
       montantPrecedent: cp ? enEuros(enCents(cp.montantValide) + enCents(cp.cotisationValidee)) : 0, // validé N-1
       echeances: ech, // échéances de la saison
       encaisse: enEuros(ech.filter((e) => e.paye).reduce((t, e) => t + enCents(e.montant), 0)), // total payé
@@ -58,6 +62,8 @@ function reconstruire() {
   store.journal = raw.journal.slice().sort((a, b) => String(b.le).localeCompare(String(a.le))).slice(0, api.JOURNAL_MAX); // v2 : plus récent d'abord, plafonné
   store.echeancesSaison = raw.echeances.filter((e) => e.saison === N && ids.has(e.partenaireId)); // échéances de la saison (tous partenaires)
   store.evenements = raw.evenements.map((e) => ({ ...e, presences: raw.presences.filter((x) => x.evenementId === e.id).map((x) => ({ ...x, partnerId: x.partenaireId })) })); // présences imbriquées (compat evenements.js)
+  const aContacter = aContacterParPartenaire(store.evenements); // v3 : statut « Contacter » repris sur chaque fiche
+  store.partenaires.forEach((v) => { v.aContacter = aContacter.get(v.id) || []; }); // [] = rien à faire ; sinon badge « À contacter » partout
 }
 
 let enAttente = null; // reconstruction planifiée
@@ -100,7 +106,7 @@ function appliquerEvenement({ table, type, row }) {
 }
 
 // ---------- Écritures optimistes ----------
-const TABLES_TOUCHENT = ["contrats", "echeances", "contreparties", "contacts"]; // tables dont l'écriture met à jour « dernière modification » de la fiche
+const TABLES_TOUCHENT = ["contrats", "echeances", "contreparties", "contacts", "documents"]; // tables dont l'écriture met à jour « dernière modification » de la fiche
 // Écrit un patch : l'UI change tout de suite, puis on confirme auprès de l'api ; en cas d'échec on annule.
 export async function ecrire(table, id, patch) {
   const cle = table === "membres" ? "email" : "id"; // clé primaire
@@ -130,7 +136,9 @@ export async function ajouter(table, ligne) {
 export async function supprimer(table, id) {
   const cle = table === "membres" ? "email" : "id"; // clé primaire
   const ligne = store.raw[table].find((l) => l[cle] === id); // ligne à retirer
+  const fichiers = table === "partenaires" ? (store.raw.documents || []).filter((d) => d.partenaireId === id).map((d) => d.chemin) : table === "documents" && ligne ? [ligne.chemin] : []; // v3 : fichiers à retirer du stockage
   await api.remove(table, id); // suppression réelle
+  api.supprimerFichiersDocuments(fichiers); // v3 : ménage dans le bucket APRÈS la suppression réussie (best-effort)
   store.raw[table] = store.raw[table].filter((l) => l[cle] !== id); // retrait local
   if (table === "partenaires") for (const t of api.TABLES_ENFANTS) store.raw[t] = store.raw[t].filter((l) => l.partenaireId !== id); // cascade locale (la base le fait aussi)
   if (TABLES_TOUCHENT.includes(table)) toucher(ligne?.partenaireId); // dernière modification
@@ -207,6 +215,25 @@ export async function creerContact(partenaireId, { nom = "", fonction = "", emai
   return c; // contact créé
 }
 
+// ---------- v3 : documents (convention signée, autres documents) ----------
+export const CATEGORIES_DOCUMENTS = { convention: "Convention", autre: "Autres documents" };
+
+// Dépose le fichier dans le stockage PUIS crée la ligne. Si la ligne échoue, le fichier est retiré.
+export async function ajouterDocument(partenaireId, categorie, fichier) {
+  const depot = await api.deposerDocument(partenaireId, categorie, fichier); // { chemin, contenu? }
+  try {
+    const doc = await ajouter("documents", { partenaireId, categorie, nom: fichier.name || "document", chemin: depot.chemin, taille: fichier.size || 0, typeMime: fichier.type || "", saison: store.reglages.saisonEnCours, ajoutePar: auteur(), ...(depot.contenu ? { contenu: depot.contenu } : {}) });
+    await noterHistorique(partenaireId, `${categorie === "convention" ? "Convention" : "Document"} ajouté(e) : ${fichier.name}`, { auto: true }); // trace
+    return doc;
+  } catch (err) { api.supprimerFichiersDocuments([depot.chemin]); throw err; } // pas de fichier orphelin
+}
+
+export async function supprimerDocument(id) {
+  const d = store.raw.documents.find((x) => x.id === id); if (!d) return;
+  await supprimer("documents", id); // ligne puis fichier (voir supprimer)
+  await noterHistorique(d.partenaireId, `${d.categorie === "convention" ? "Convention" : "Document"} supprimé(e) : ${d.nom}`, { auto: true });
+}
+
 // ---------- v2 : restauration depuis le journal (« historique réversible ») ----------
 // Chaque entrée du journal contient de quoi revenir en arrière :
 //   UPDATE → on réécrit les valeurs « avant » des champs modifiés
@@ -216,6 +243,7 @@ export async function creerContact(partenaireId, { nom = "", fonction = "", emai
 const NON_RESTAURABLE = (v) => typeof v === "string" && v === "(image importée)"; // marqueur du mode mock : l'image n'a pas été recopiée
 
 export function restaurable(entree) {
+  if (entree?.tableNom === "documents") return false; // v3 : le fichier est supprimé du stockage avec sa ligne → rien à recréer
   if (!entree || entree.tableNom === "reglages" && entree.action !== "UPDATE") return false; // la ligne unique des réglages ne se crée / supprime pas
   const existe = (t, id) => store.raw[t]?.some((l) => String(l.id) === String(id)); // la ligne est-elle encore là ?
   if (entree.action === "UPDATE") return existe(entree.tableNom, entree.ligneId) && Object.values(entree.avant || {}).some((v) => !NON_RESTAURABLE(v)); // ligne présente + au moins une valeur récupérable

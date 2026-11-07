@@ -100,10 +100,14 @@ npm run test:e2e
 |---|---|---|
 | Colonne **Non encaissé** après « Signé » | Pipeline | `selectors.js` (`resteAEncaisser`, `estSolde`, `colonnePipeline`), `store.js` (`COLONNES`), `pipeline.js` |
 | **Numéro SIRET** (saisie, modification, contrôle) | Partenaires (colonne + bouton), fiche › Informations, fenêtre « Nouveau partenaire » | `selectors.js` (`validerSiret`), `siret.js`, `partenaires.js`, `fiche.js` |
-| **Logos** des sponsors (**automatiques par défaut** via logo.dev + import manuel) | Partout (liste, pipeline, fiche) ; correction dans la fiche ; proposé à la création | `logos.js`, `logos-auto.js`, `api.js` (`deposerLogo`), `store.js` (`enregistrerLogo`) |
-| Statut **« Contact à rajouter »** | Événements › Présences | `evenements.js`, `contacts.js` |
+| **Logos** des sponsors (import manuel + **recherche automatique** logo.dev) | Fiche (en-tête + Informations), Pipeline, Partenaires › Logos automatiques, Nouveau partenaire | `logos.js`, `logos-auto.js`, `api.js` (`deposerLogo`), `store.js` (`enregistrerLogo`) |
+| Statut **« Contacter »** (v3, ex-« Contact à rajouter ») | Événements › Présences ; badge sur Pipeline, Partenaires (+ filtre) et fiche | `selectors.js` (`aContacterParPartenaire`), `evenements.js`, `utils.js` (`badgeAContacter`) |
 | **Journal d'audit** (qui / quoi / quel compte) | Écran Journal, fiche › Journal des modifications | `schema.sql` §2 bis, `api.js`, `store.js` (`restaurer`), `journal.js` |
 | **Répartition de l'argent** (montants validés / cotisations) sous « Signé » et « Encaissé », calculée automatiquement | Tableau de bord › Score de la saison | `selectors.js` (`calculerRepartition`), `dashboard.js` |
+
+**Mise à jour v3** (en deux temps, car la branche de dev et la production partagent la même base) :
+1. **Avant** de déployer la v3 (même sur la branche de dev) : lancer `supabase/migration-v3.sql` (3 lignes « ok »). Compatible avec l'ancien site : « Contacter » est ajouté, « Contact à rajouter » reste accepté.
+2. **Après** la mise en production de la v3 (fusion dans `main`) : lancer `supabase/migration-v3-finalisation.sql`, qui convertit les anciennes lignes et retire l'ancienne valeur.
 
 **Mise à jour d'une base Supabase existante** : coller `supabase/migration-v2.sql` dans le SQL Editor et cliquer sur Run (4 lignes « ok » attendues). Alternative : relancer `supabase/schema.sql` en entier, après avoir retiré les membres fictifs de la section 4. Le script est idempotent (vérifié sur PostgreSQL 16) : il ajoute colonnes, tables, trigger et bucket sans toucher aux données.
 
@@ -160,36 +164,52 @@ Déposer une carte sur « Signé » ou sur « Non encaissé » la passe à l'ét
 - `netlify.toml` autorise `img-src blob: https://*.supabase.co` (aperçu + images du bucket).
 - Le journal d'audit ne recopie pas les images base64 du mode mock (remplacées par « (image importée) »).
 
-### 9.4 Logos automatiques (logo.dev) — sans aucun clic
+### 9.4 Logos automatiques (logo.dev)
 
-**Par défaut, chaque fiche sans logo choisi affiche directement le logo trouvé automatiquement** : liste des partenaires, pipeline, fiche, recherche… Sponsors déjà enregistrés compris, sans bouton ni validation (`logos.js`, « LOGO AUTOMATIQUE PAR DÉFAUT »).
+Trois façons de trouver un logo **sans l'importer à la main** (`logos-auto.js`) :
 
-Valeurs de `partenaires.logo` :
-
-| Valeur | Affichage |
+| Où | Ce qui se passe |
 |---|---|
-| vide (défaut) | logo **automatique** logo.dev, recalculé à l'affichage (rien n'est enregistré) |
-| une adresse | le logo **choisi** (importé à la main, ou proposé puis validé) |
-| `-` | **aucun logo** : un membre a refusé le logo automatique → monogramme |
+| **Nouveau partenaire** | Dès qu'on tape le nom, les logos trouvés s'affichent sous le champ ; le premier est présélectionné (« Aucun » pour ne rien enregistrer). |
+| **Fiche › Informations › Chercher automatiquement** | Propositions pour cette fiche, à valider. |
+| **Partenaires › Logos automatiques** | Toutes les fiches **sans logo** d'un coup : une ligne par fiche, le premier logo trouvé présélectionné, « Tout décocher », puis « Enregistrer N logos ». |
 
 Fonctionnement pas à pas :
-1. **Candidats** (`selectors.candidatsLogo`, testé) : d'abord le site tiré de l'**e-mail professionnel** des contacts (`jean@ecf82.fr` → `ecf82.fr`), puis le **nom** et chaque marque d'un nom composé. Messageries grand public ignorées.
-2. **Affichage** : le navigateur charge le premier candidat (`https://img.logo.dev/…?token=<clé publique>&fallback=404`). En cas de 404 (logo inconnu), il essaie automatiquement le suivant (`data-suivants`), puis affiche le monogramme. Les échecs sont mémorisés pour ne pas être réessayés.
-3. **Correction** depuis la fiche › Informations : « Ce n'est pas le bon logo » (→ `-`), « Autres logos trouvés » (choisir une autre proposition), « Importer » (son propre fichier), « Revenir au logo automatique » (→ vide).
-4. **Nouveau partenaire** : le logo trouvé s'affiche sous le champ Nom pendant la saisie, présélectionné ; « Aucun » enregistre `-`.
+1. **Candidats** (`selectors.candidatsLogo`, testé) : d'abord le **site tiré de l'e-mail professionnel** des contacts (`jean@ecf82.fr` → `ecf82.fr`, le plus fiable), puis le **nom** de l'entreprise et chaque marque d'un nom composé (« Acuitis - Optic 2000 »). Les messageries grand public (gmail.com, orange.fr…) sont ignorées.
+2. **Vérification** : le navigateur charge chaque image `https://img.logo.dev/…?token=<clé publique>&fallback=404`. Un logo inconnu répond 404 → il est écarté.
+3. **Validation par un membre** : rien n'est enregistré sans clic (deux entreprises peuvent porter le même nom).
+4. **Enregistrement** : l'adresse de l'image est écrite dans `partenaires.logo` (comme un logo importé) → affichage partout, temps réel, journal.
 
-Configuration : `CONFIG.LOGO_DEV_KEY` dans `config.js` = clé **publique** `pk_…` (faite pour être visible). Ne jamais y mettre la clé secrète `sk_…`. Clé vide = logos automatiques désactivés. `netlify.toml` autorise les images `https://img.logo.dev`. Aucune modification Supabase.
+Configuration : `CONFIG.LOGO_DEV_KEY` dans `config.js` = clé **publique** `pk_…` (faite pour être visible). Ne jamais y mettre la clé secrète `sk_…`. Clé vide = fonctionnalité masquée. `netlify.toml` autorise les images `https://img.logo.dev`. Aucune modification Supabase.
 
-Limites : les marques connues sont bien trouvées ; pour un commerce local, la recherche par nom peut ne rien trouver (monogramme) ou trouver une autre entreprise du même nom → « Ce n'est pas le bon logo ». La mention « Logos provided by Logo.dev » figure en pied de page (offre gratuite de logo.dev).
+Limites : les marques connues sont bien trouvées ; les commerces locaux souvent pas (import manuel). La mention « Logos provided by Logo.dev » figure en pied de page (demandée par l'offre gratuite de logo.dev).
 
 ---
 
-## 10. Événements : statut « Contact à rajouter »
+## 10. Événements : statut « Contacter » (v3)
 
-1. Dans la liste Présence d'un partenaire, choisir **« Contact à rajouter »** : le statut est enregistré (pense-bête, il apparaît aussi dans « À faire » du tableau de bord).
-2. La fenêtre **« Nouveau contact »** s'ouvre automatiquement, pré-remplie (entreprise, événement, nom s'il n'y en a qu'un dans « Noms ») et rappelle les contacts déjà connus pour éviter les doublons.
-3. **Enregistrer** → le contact est ajouté à la fiche, une ligne « Contact ajouté : … — Afterwork du … » est écrite dans l'historique, et la présence reprend son statut précédent (« Oui » par défaut, 1 personne minimum, nom reporté dans « Noms » s'il était vide).
-4. **Plus tard** → le statut reste « Contact à rajouter » ; un bouton « Ajouter le contact » sur la ligne (et dans la fiche › Présences) permet de reprendre.
+« Contacter » remplace « Contact à rajouter » : **un contact est à établir avec le partenaire**.
+
+1. Dans la liste Présence d'un partenaire (Événements), choisir **« Contacter »** : la valeur est **enregistrée immédiatement** dans Supabase (écriture optimiste, annulée avec un message si la base refuse).
+2. Le temps réel la diffuse aux autres membres. Elle remonte partout : badge **« À contacter »** sur la carte du Pipeline, dans la liste Partenaires (filtre **« À contacter »**) et dans l'en-tête de la fiche ; ligne « À contacter — … » dans « À faire » du tableau de bord. L'infobulle du badge rappelle les événements concernés.
+3. Le statut se modifie aussi depuis la fiche › Présences aux événements (liste déroulante). Dès qu'un autre statut est choisi, le badge disparaît.
+4. Le bouton « Ajouter le contact » d'une ligne ouvre, si besoin, la fenêtre « Nouveau contact » pré-remplie ; il ne change pas le statut.
+
+L'ancienne valeur est convertie par `supabase/migration-v3-finalisation.sql`, à lancer une fois la v3 en production ; en attendant, le site v3 la lit déjà comme « Contacter ».
+
+---
+
+## 10 bis. Documents de la fiche : Convention et Autres documents (v3)
+
+Fiche › Informations › **Documents** : deux emplacements, **Convention** (convention signée ; badge « Reçue » / « Manquante ») et **Autres documents** (factures, RIB, justificatifs…).
+
+1. Glisser-déposer un ou plusieurs fichiers sur l'emplacement, ou cliquer sur **Parcourir** (Entrée au clavier).
+2. Formats acceptés : PDF, images (PNG, JPEG, WebP, HEIC), Word, Excel, OpenDocument, texte/CSV. **15 Mo max** par fichier (1,5 Mo en mode mock).
+3. Le fichier est déposé dans le bucket **privé** Supabase `documents` (`<id-partenaire>/<categorie>/<horodatage>-<nom>`), puis une ligne est créée dans la table `documents` (temps réel + journal d'audit + ligne dans l'historique de la fiche).
+4. **Ouvrir** (clic sur le nom) / **Télécharger** : adresse signée valable 2 minutes, le fichier n'a jamais d'URL publique.
+5. **Supprimer** (deux clics) : la ligne puis le fichier. Supprimer une fiche retire aussi ses fichiers.
+
+Fichiers : `documents.js`, `api.js` (`deposerDocument`, `adresseDocument`), `store.js` (`ajouterDocument`, `supprimerDocument`), `schema.sql` §3 ter.
 
 ---
 
@@ -222,6 +242,13 @@ Limites : les marques connues sont bien trouvées ; pour un commerce local, la r
 
 ---
 
+## 12 bis. Tableau de bord : total global et répartition du budget (v3)
+
+- **Total global** (grand chiffre du « Score de la saison ») = Σ montants validés + Σ cotisations validées. La jauge et « Reste à trouver » se calculent sur ce total.
+- **Répartition du budget** juste dessous : Total montants validés, Total cotisations validées (comparé aux cotisations demandées), Total mécénat (part des montants validés, déjà dans le total), Total apports en nature (valorisation, hors total).
+- Fiches comptées : toutes celles à l'étape « Signé », plus celles qui ont déjà un montant ou une cotisation validé(e) sans avoir changé d'étape ; jamais « Perdu » ni « Archivé ». Le nombre de fiches est affiché à droite du titre.
+- « Dont fiches « Signé » » garde le total des seules fiches à l'étape Signé. Calcul : `selectors.calculerBudget`.
+
 ## 12. Tableau de bord : répartition sous « Signé » et « Encaissé »
 
 Dans le bloc **« Score de la saison »**, sous les totaux « Signé » et « Encaissé », deux lignes indiquent d'où vient l'argent — **calculé automatiquement** à partir des contrats, sans saisie (`selectors.calculerRepartition`) :
@@ -241,5 +268,5 @@ Exemple : AXA a validé **500 €** + **200 €** de cotisation et a tout payé 
 
 ## 13. Tests
 
-- `npm test` : tests unitaires (dont SIRET/Luhn, colonne Non encaissé et reste dû, répartition montants validés / cotisations (exemple AXA), « Contact à rajouter » dans À faire, résumé de l'appareil).
-- `npm run test:e2e` : parcours navigateur complet, étendu en v2 (colonnes Signé / Non encaissé, SIRET refusé puis accepté, import de logo visible dans l'autre onglet, répartition égale aux totaux Signé et Encaissé, fenêtre contact automatique, journal et restauration d'une valeur).
+- `npm test` : tests unitaires (dont SIRET/Luhn, colonne Non encaissé et reste dû, répartition montants validés / cotisations (exemple AXA), « Contacter » dans À faire et sur les fiches, total global et ventilation du budget, résumé de l'appareil).
+- `npm run test:e2e` : parcours navigateur complet, étendu en v2 (colonnes Signé / Non encaissé, SIRET refusé puis accepté, import de logo visible dans l'autre onglet, répartition égale au total Encaissé, journal et restauration d'une valeur) puis en v3 (« Contacter » enregistré et visible dans l'autre onglet, dépôt / téléchargement / suppression de documents, format refusé, total global = somme des sous-totaux).

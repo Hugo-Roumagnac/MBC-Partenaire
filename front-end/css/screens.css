@@ -307,3 +307,62 @@
 .logo-ligne__nom strong { overflow-wrap: anywhere; }
 @media (max-width: 559px) { .logo-ligne { grid-template-columns: minmax(0, 1fr); } }
 .modal__panel--lg { max-width: 860px; } /* v2 : fenêtre « Logos automatiques » */
+
+/* =============================================================================
+   v3 — Statut « Contacter », documents de la fiche, répartition du budget
+   ============================================================================= */
+
+/* Badge « À contacter » : repris sur le pipeline, la liste des partenaires et la fiche */
+.badge--contacter { display: inline-flex; align-items: center; gap: 4px; background: var(--color-accent-soft); color: var(--color-accent-hover); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 35%, transparent); }
+.badge--contacter .icon { width: 12px; height: 12px; }
+td .badge--contacter { margin-left: 4px; }
+
+/* Fiche › Présences : statut modifiable directement */
+.attendance-item { align-items: center; gap: var(--space-3); }
+.attendance-item__select { width: auto; min-width: 128px; flex: none; }
+.attendance-item--contacter { border-left: 3px solid var(--color-accent); padding-left: 10px; }
+.attendance-item--success { border-left: 3px solid var(--color-success); padding-left: 10px; }
+
+/* Documents : deux emplacements côte à côte (empilés sur téléphone) */
+.docs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: var(--space-3); margin-top: 6px; } /* côte à côte si la fiche est large, sinon l'un sous l'autre */
+.doczone { display: grid; gap: 8px; align-content: start; padding: 12px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-alt); min-width: 0; }
+.doczone__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.doczone__title { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-sm); font-weight: 700; color: var(--color-text); }
+.doczone__drop { display: grid; justify-items: center; gap: 4px; padding: 16px 10px; text-align: center; border: 2px dashed var(--color-border-strong); border-radius: var(--radius-md); background: var(--color-surface); color: var(--color-text-muted); cursor: pointer; transition: border-color .15s, background-color .15s; }
+.doczone__drop > .icon { width: 22px; height: 22px; color: var(--color-text-faint); }
+.doczone__drop-text { font-size: var(--text-sm); font-weight: 600; }
+.doczone__drop-or { font-size: var(--text-xs); display: inline-flex; align-items: center; gap: 6px; }
+.doczone__drop .field__hint { font-size: var(--text-xs); }
+.doczone__drop:hover, .doczone__drop:focus-visible { border-color: var(--color-accent); }
+.doczone__drop:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.doczone--drop .doczone__drop { border-color: var(--color-accent); background: var(--color-accent-soft); color: var(--color-text); }
+.doczone__drop.is-busy { border-style: solid; border-color: var(--color-info); background: var(--color-info-bg); color: var(--color-info); cursor: progress; }
+.doclist { display: grid; gap: 4px; list-style: none; margin: 0; padding: 0; }
+.doclist__item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--radius-sm, 6px); background: var(--color-surface); border: 1px solid var(--color-border); min-width: 0; }
+.doclist__type { flex: none; display: grid; place-items: center; width: 34px; height: 26px; border-radius: 4px; background: var(--color-surface-sunken); color: var(--color-text-muted); font-size: 10px; font-weight: 800; letter-spacing: .04em; }
+.doclist__body { display: grid; min-width: 0; flex: 1; }
+.doclist__name { all: unset; cursor: pointer; font-size: var(--text-sm); font-weight: 600; color: var(--color-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doclist__name:hover { color: var(--color-accent-hover); text-decoration: underline; }
+.doclist__name:focus-visible { outline: 2px solid var(--color-accent); border-radius: 2px; }
+.doclist__meta { font-size: var(--text-xs); color: var(--color-text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doclist__actions { display: inline-flex; flex: none; }
+
+/* Tableau de bord : répartition du budget sous le total global */
+.score__main-formula { text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--color-text-faint); }
+.budget { display: grid; gap: var(--space-3); padding-top: var(--space-4); border-top: 1px solid var(--color-border); }
+.budget__head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; }
+.budget__title { margin: 0; font-size: var(--text-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-muted); }
+.budget__scope { font-size: var(--text-xs); color: var(--color-text-faint); }
+.budget__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+@media (min-width: 900px) { .budget__grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.budget__tile { --tone: var(--color-text-muted); display: grid; gap: 2px; align-content: start; padding: 12px 14px; border-radius: var(--radius-md); background: var(--color-surface-alt); border: 1px solid var(--color-border); border-top: 3px solid var(--tone); min-width: 0; }
+.budget__tile--montants { --tone: var(--color-success); }
+.budget__tile--cotisations { --tone: var(--color-info); }
+.budget__tile--mecenat { --tone: var(--color-accent); }
+.budget__tile--nature { --tone: var(--color-text-faint); }
+.budget__label { font-size: var(--text-xs); font-weight: 600; color: var(--color-text-muted); }
+.budget__value { font-size: 1.25rem; font-weight: 800; letter-spacing: -0.02em; color: var(--color-text); font-variant-numeric: tabular-nums; }
+.budget__sub { font-size: var(--text-xs); color: var(--color-text-faint); }
+.budget__bar { display: block; height: 4px; margin-top: 6px; border-radius: 999px; background: var(--color-surface-sunken); overflow: hidden; }
+.budget__bar > span { display: block; height: 100%; width: calc(var(--value, 0) * 1%); background: var(--tone); border-radius: inherit; transition: width .3s; }
+@media (max-width: 420px) { .budget__value { font-size: 1.0625rem; } .budget__tile { padding: 10px; } }

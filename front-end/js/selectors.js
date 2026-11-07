@@ -4,10 +4,28 @@ import { ecartJours, ajouterMois } from "./dates.js"; // helpers de dates sans D
 export const ETAPES = ["Prospect", "Contacté", "RDV", "Proposition", "Négociation", "Signé", "Perdu", "Archivé"]; // §3 listes de valeurs
 export const ETAPES_NEGOCIATION = ["RDV", "Proposition", "Négociation"]; // §5 « En négociation »
 export const COTISATION_PAR_DEFAUT = 200; // §5 règle 4 : cotisation demandée d'une nouvelle fiche
-// v2 : statuts de présence aux événements. « Contact à rajouter » = quelqu'un de l'entreprise est venu
-// (ou s'est inscrit) mais n'existe pas encore dans ses contacts : choisir ce statut ouvre la saisie du contact.
-export const PRESENCE_CONTACT = "Contact à rajouter";
+// Statuts de présence aux événements.
+// v3 : « Contacter » remplace « Contact à rajouter » : un contact est à établir avec le partenaire.
+// Le statut est enregistré dès qu'il est choisi et remonte partout (pipeline, liste et fiche partenaire,
+// « À faire » du tableau de bord). L'ancienne valeur, encore présente tant que supabase/migration-v3.sql
+// n'a pas été lancé (ou dans un navigateur en mode démo), est lue comme « Contacter ».
+export const PRESENCE_CONTACT = "Contacter";
+export const PRESENCE_CONTACT_ANCIEN = "Contact à rajouter";
 export const PRESENCES = ["Oui", "En attente", "Non", PRESENCE_CONTACT];
+export const normaliserPresence = (p) => (p === PRESENCE_CONTACT_ANCIEN ? PRESENCE_CONTACT : p);
+
+// v3 : événements pour lesquels chaque partenaire est « à contacter ».
+// → Map partenaireId → [{ presenceId, evenementId, evenementNom, date, noms }], le plus récent d'abord.
+export function aContacterParPartenaire(evenements = []) {
+  const m = new Map();
+  for (const evt of evenements) for (const x of evt.presences || []) {
+    if (normaliserPresence(x.presence) !== PRESENCE_CONTACT) continue;
+    if (!m.has(x.partenaireId)) m.set(x.partenaireId, []);
+    m.get(x.partenaireId).push({ presenceId: x.id, evenementId: evt.id, evenementNom: evt.nom, date: evt.date || "", noms: x.noms || "" });
+  }
+  for (const l of m.values()) l.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  return m;
+}
 
 export const enCents = (euros) => Math.round((Number(euros) || 0) * 100); // euros → cents entiers (évite les flottants)
 export const enEuros = (cents) => cents / 100; // cents → euros
@@ -65,6 +83,7 @@ export function calculerTableauDeBord(etat, aujourdhui) {
   const perdus = partenaires.filter((v) => v.etape === "Perdu"); // non renouvelés
 
   const signe = somme(signes, totalValide); // montant signé
+  const budget = calculerBudget(partenaires); // v3 : total global (montants + cotisations validés) et sa ventilation
   const encaisse = somme(echeances.filter((e) => e.paye), (e) => e.montant); // encaissé : tous partenaires
   const negocie = somme(nego, totalDemande); // montant en négociation
   const pct = (x) => (objectif > 0 ? Math.min(100, Math.round((x / objectif) * 100)) : 0); // % borné de l'objectif
@@ -74,7 +93,8 @@ export function calculerTableauDeBord(etat, aujourdhui) {
   const totalCp = signes.reduce((t, v) => t + v.contrepartiesTotal, 0); // contreparties promises (signés)
 
   return {
-    score: { objectif, signe, encaisse, negocie, reste: Math.max(0, enEuros(enCents(objectif) - enCents(signe))), pctSigne: pct(signe), pctEncaisse: pct(encaisse) }, // bloc « Score de la saison »
+    score: { objectif, total: budget.total, signe, encaisse, negocie, reste: Math.max(0, enEuros(enCents(objectif) - enCents(budget.total))), pctTotal: pct(budget.total), pctSigne: pct(signe), pctEncaisse: pct(encaisse) }, // bloc « Score de la saison » (v3 : jauge et reste sur le total global)
+    budget, // v3 : ventilation détaillée sous le total global
     kpis: {
       signes: { nombre: signes.length, natureMedia: signes.filter((v) => v.type === "En nature" || v.type === "Média").length, cotisations: somme(signes, (v) => v.cotisationValidee) }, // KPI 1
       negociation: { nombre: nego.length, montant: negocie }, // KPI 2
@@ -109,10 +129,10 @@ export function construireAFaire(partenaires, echeances, aujourdhui, evenements 
   for (const v of partenaires.filter(cerfaAEmettre)) { // 3) reçus CERFA à émettre
     items.push({ priorite: 3, partenaireId: v.id, titre: `Émettre le reçu CERFA — ${v.nom}`, meta: `Part de mécénat : ${v.dontMecenat} €`, date: "9999-12-31", ton: "warning", badge: "CERFA" });
   }
-  for (const evt of evenements) { // 3 bis) v2 : contacts repérés à un événement mais pas encore saisis
+  for (const evt of evenements) { // 3 bis) v3 : partenaires à contacter suite à un événement
     for (const x of evt.presences || []) {
-      if (x.presence !== PRESENCE_CONTACT || !parId.has(x.partenaireId)) continue; // seulement ce statut, fiche existante
-      items.push({ priorite: 3, partenaireId: x.partenaireId, titre: `Contact à rajouter — ${parId.get(x.partenaireId).nom}`, meta: `${evt.nom}${x.noms ? ` · ${x.noms}` : ""}`, date: evt.date || "9999-12-31", ton: "info", badge: "Contact", icone: "users" });
+      if (normaliserPresence(x.presence) !== PRESENCE_CONTACT || !parId.has(x.partenaireId)) continue; // seulement ce statut, fiche existante
+      items.push({ priorite: 3, partenaireId: x.partenaireId, titre: `À contacter — ${parId.get(x.partenaireId).nom}`, meta: `${evt.nom}${x.noms ? ` · ${x.noms}` : ""}`, date: evt.date || "9999-12-31", ton: "info", badge: "Contacter", icone: "phone" });
     }
   }
   for (const v of actifs) { // 5) négociations sans prochaine action
@@ -285,3 +305,31 @@ export function candidatsLogo({ nom, contacts = [] }, cle) {
 
 // Vrai si une adresse de logo vient de la recherche automatique (pour l'affichage et la mention logo.dev).
 export const estLogoAutomatique = (url) => String(url || "").startsWith("https://img.logo.dev/");
+
+// =============================================================================
+// v3 — BUDGET DE LA SAISON : total global et ventilation (tableau de bord)
+// =============================================================================
+// Revenus enregistrés = ce qui est saisi dans « Contrat de la saison » de chaque fiche.
+// Fiches comptées : toutes celles à l'étape « Signé », plus celles qui ont déjà un montant ou une
+// cotisation VALIDÉ(E) sans avoir encore changé d'étape — sauf « Perdu » et « Archivé ».
+//   TOTAL GLOBAL        = Σ montants validés + Σ cotisations validées
+//   Montants validés    = Σ montant validé
+//   Cotisations         = Σ cotisation validée (comparée à Σ cotisation demandée des mêmes fiches)
+//   Mécénat             = Σ « dont mécénat » (une PART des montants validés : déjà dans le total)
+//   Apports en nature   = Σ apport en nature (valorisation, HORS total : ce n'est pas de l'argent reçu)
+export const budgetCompte = (v) => v.etape !== "Perdu" && v.etape !== "Archivé" && (v.etape === "Signé" || enCents(v.montantValide) > 0 || enCents(v.cotisationValidee) > 0);
+
+export function calculerBudget(partenaires) {
+  const l = partenaires.filter(budgetCompte); // fiches qui portent des revenus enregistrés
+  const montants = somme(l, (v) => v.montantValide), cotisations = somme(l, (v) => v.cotisationValidee);
+  return {
+    total: enEuros(enCents(montants) + enCents(cotisations)), // TOTAL GLOBAL
+    montants, // montants validés
+    cotisations, // cotisations validées
+    cotisationsDemandees: somme(l, (v) => v.cotisationDemandee), // cotisations demandées (mêmes fiches)
+    mecenat: somme(l, (v) => Math.min(Number(v.dontMecenat) || 0, Number(v.montantValide) || 0)), // part de mécénat (plafonnée au montant validé)
+    nature: somme(l, (v) => v.natureValeur), // apports en nature
+    nombre: l.length, // nombre de fiches comptées
+    nonSignes: l.filter((v) => v.etape !== "Signé").length // fiches avec du validé mais pas encore « Signé » (affiché en aide)
+  };
+}

@@ -4,6 +4,7 @@ import assert from "node:assert/strict"; // assertions strictes
 import { repartirCents, planifierEcheancier, calculerTableauDeBord, enRetard, cerfaAEmettre } from "../front-end/js/selectors.js"; // fonctions testées
 import { nomsDeRecherche, domaineProfessionnel, candidatsLogo } from "../front-end/js/selectors.js"; // v2 : logos automatiques
 import { validerSiret, formaterSiret, estSolde, colonnePipeline, resteAEncaisser, calculerRepartition, construireAFaire, resumerAppareil, PRESENCES } from "../front-end/js/selectors.js"; // v2
+import { normaliserPresence, aContacterParPartenaire, calculerBudget } from "../front-end/js/selectors.js"; // v3
 import { ajouterMois } from "../front-end/js/dates.js"; // helper de dates
 import { CATALOGUE_CONTREPARTIES } from "../front-end/js/mock-seed.js"; // catalogue officiel du §3 du PDF
 
@@ -89,12 +90,46 @@ test("répartition sous Signé / Encaissé : montants validés et total des coti
   assert.equal(r.encaisse.montants + r.encaisse.cotisations, 700 + 1350 + 300); // retombe exactement sur l'encaissé total
 });
 
-test("événements : « Contact à rajouter » existe et alimente la liste « À faire »", () => {
-  assert.equal(PRESENCES.includes("Contact à rajouter"), true); // nouvelle valeur
-  const evts = [{ nom: "Afterwork", date: "2026-11-20", presences: [{ partenaireId: "x", presence: "Contact à rajouter", noms: "Jean D." }, { partenaireId: "x", presence: "Oui" }] }];
+test("événements : « Contacter » remplace « Contact à rajouter » et alimente « À faire »", () => {
+  assert.equal(PRESENCES.includes("Contacter"), true); // nouvelle valeur
+  assert.equal(PRESENCES.includes("Contact à rajouter"), false); // ancienne valeur retirée de la liste
+  assert.equal(normaliserPresence("Contact à rajouter"), "Contacter"); // l'ancienne valeur est lue sous le nouveau nom
+  const evts = [{ id: "e1", nom: "Afterwork", date: "2026-11-20", presences: [{ id: "p1", partenaireId: "x", presence: "Contacter", noms: "Jean D." }, { id: "p2", partenaireId: "x", presence: "Oui" }] }];
   const todo = construireAFaire([vue({})], [], "2026-11-07", evts);
   assert.equal(todo.length, 1); // une seule ligne : le « Oui » n'en crée pas
-  assert.match(todo[0].titre, /Contact à rajouter/);
+  assert.match(todo[0].titre, /À contacter/);
+});
+
+test("« Contacter » est repris sur chaque fiche (badge pipeline / fiche)", () => {
+  const evts = [
+    { id: "e1", nom: "Afterwork", date: "2026-10-01", presences: [{ id: "p1", partenaireId: "x", presence: "Contacter" }] },
+    { id: "e2", nom: "Match", date: "2026-11-15", presences: [{ id: "p2", partenaireId: "x", presence: "Contact à rajouter" }, { id: "p3", partenaireId: "y", presence: "Non" }] }
+  ];
+  const m = aContacterParPartenaire(evts);
+  assert.deepEqual(m.get("x").map((l) => l.evenementNom), ["Match", "Afterwork"]); // le plus récent d'abord, ancienne valeur comprise
+  assert.equal(m.has("y"), false); // « Non » : rien à faire
+});
+
+test("budget : total global = montants validés + cotisations validées, ventilation exacte", () => {
+  const axa = vue({ id: "axa", montantValide: 500, cotisationValidee: 200, cotisationDemandee: 200, natureValeur: 0 });
+  const myjob = vue({ id: "myjob", montantValide: 2500.5, cotisationValidee: 150, cotisationDemandee: 200, dontMecenat: 2000, natureValeur: 800 });
+  const nego = vue({ id: "n", etape: "Négociation", montantValide: 1000, cotisationValidee: 0, cotisationDemandee: 200 }); // validé, étape pas encore changée
+  const prospect = vue({ id: "p", etape: "Prospect", montantValide: 0, cotisationValidee: 0, cotisationDemandee: 200 }); // rien de validé : ignoré
+  const perdu = vue({ id: "l", etape: "Perdu", montantValide: 900, cotisationValidee: 200 }); // perdu : ignoré
+  const b = calculerBudget([axa, myjob, nego, prospect, perdu]);
+  assert.equal(b.montants, 4000.5);
+  assert.equal(b.cotisations, 350);
+  assert.equal(b.total, 4350.5); // = montants + cotisations, sans erreur de virgule flottante
+  assert.equal(b.cotisationsDemandees, 600); // mêmes fiches que les cotisations validées
+  assert.equal(b.mecenat, 2000);
+  assert.equal(b.nature, 800); // hors total
+  assert.equal(b.nombre, 3);
+  assert.equal(b.nonSignes, 1);
+  const t = calculerTableauDeBord({ partenaires: [axa, myjob, nego], echeances: [], reglages: { objectif: 8701 } }, "2026-11-07");
+  assert.equal(t.score.total, 4350.5); // la jauge suit le total global…
+  assert.equal(t.score.pctTotal, 50);
+  assert.equal(t.score.reste, 4350.5); // …et le reste à trouver aussi
+  assert.equal(t.score.signe, 3350.5); // « Signé » reste limité aux fiches à l'étape Signé
 });
 
 test("journal : résumé lisible de l'appareil", () => {

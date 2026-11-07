@@ -129,3 +129,12 @@ export function remplirResponsables(select, { tous = false, sans = false } = {})
     select.value = valeurActuelle;
   }
 }
+
+// v3 : badge « À contacter » (statut « Contacter » choisi à un événement), commun au pipeline,
+// à la liste des partenaires et à la fiche. L'infobulle rappelle les événements concernés.
+export function badgeAContacter(p, { court = false } = {}) {
+  const l = p?.aContacter || [];
+  if (!l.length) return "";
+  const titre = `Contact à établir — ${l.map((x) => `${x.evenementNom}${x.date ? ` (${formatDate(x.date)})` : ""}`).join(", ")}`;
+  return `<span class="badge badge--contacter" title="${escapeHtml(titre)}"><svg class="icon icon--sm" aria-hidden="true"><use href="#i-phone"/></svg>${court ? "Contacter" : "À contacter"}${l.length > 1 ? ` ×${l.length}` : ""}</span>`;
+}

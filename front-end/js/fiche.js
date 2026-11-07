@@ -4,16 +4,15 @@ import { totalValide, totalDemande, cerfaAEmettre, montantParDefaut, planifierEc
 import { aujourdhui } from "./dates.js"; // date du jour
 import { creerDrawer } from "./drawer.js"; // mécanisme du panneau
 import { naviguer } from "./router.js"; // navigation par URL
-import { formatEuro, formatDate, escapeHtml, showToast, stageSlug, montantAffiche, montantMeta } from "./utils.js";
+import { formatEuro, formatDate, escapeHtml, showToast, stageSlug, montantAffiche, montantMeta, badgeAContacter } from "./utils.js";
 import { icon } from "./icons.js"; // affichage
 // ---- v2 ----
-import { validerSiret, formaterSiret, resteAEncaisser, PRESENCE_CONTACT } from "./selectors.js"; // SIRET, reste dû, statut contact
-import { importerLogo, logoHtml, verifierFichier, logosAutomatiques, SANS_LOGO } from "./logos.js"; // logos
-import { enregistrerLogo } from "./store.js"; // v2 : « Retirer » / « Revenir au logo automatique »
+import { validerSiret, formaterSiret, resteAEncaisser, PRESENCE_CONTACT, PRESENCES } from "./selectors.js"; // SIRET, reste dû, statuts de présence
+import { importerLogo, retirerLogo, logoHtml, verifierFichier } from "./logos.js"; // logos
 import { journalFicheHtml, surClicRestaurer } from "./journal.js"; // journal de la fiche
 import { lienAnnuaire } from "./siret.js"; // recherche du SIRET
-import { ouvrirContactPresence } from "./evenements.js"; // « Contact à rajouter » depuis la fiche
 import { ouvrirRechercheLogos, rechercheActive } from "./logos-auto.js"; // recherche automatique du logo
+import { initDocuments, renderDocuments } from "./documents.js"; // v3 : convention + autres documents (glisser-déposer)
 
 const $ = (id) => document.getElementById(id); // raccourci getElementById
 let idCourant = null; // id de la fiche ouverte (null = fermée)
@@ -32,6 +31,7 @@ export function initFiche() {
   // v2 : import du logo — par le sélecteur de fichier…
   $("f-logo-file").addEventListener("change", (e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) envoyerLogo(f); }); // vide l'input : re-choisir le même fichier redéclenche « change »
   $("section-journal").addEventListener("toggle", () => renderFiche(true)); // v2 : le journal n'est calculé qu'à l'ouverture de sa section
+  initDocuments(); // v3 : emplacements « Convention » et « Autres documents »
   // …ou par glisser-déposer d'une image sur le logo de l'en-tête
   const zone = $("fiche-logo");
   zone.addEventListener("dragover", (e) => { if ([...(e.dataTransfer?.types || [])].includes("Files")) { e.preventDefault(); zone.classList.add("fiche-logo--drop"); } }); // accepte seulement des fichiers
@@ -94,6 +94,7 @@ async function surChangement(e) {
     else {
       const id = table === "contrats" ? (await assurerContrat(idCourant)).id : table === "partenaires" ? idCourant : el.dataset.id; // ligne visée
       const patch = { [field]: valeur }; // UNIQUEMENT le champ modifié (règle §5.6)
+      if (table === "presences" && field === "presence" && valeur === "Oui" && !(Number(store.raw.presences.find((x) => x.id === id)?.personnes) > 0)) patch.personnes = 1; // v3 : même règle que l'écran Événements
       if (table === "partenaires") Object.assign(patch, { modifieLe: new Date().toISOString(), modifiePar: auteur() }); // traçabilité §6
       await ecrire(table, id, patch); // écriture optimiste
     }
@@ -145,10 +146,7 @@ async function surClic(e) {
       // ---- v2 : logo ----
       case "logo-choisir": $("f-logo-file").click(); return; // ouvre le sélecteur de fichier du système
       case "logo-auto": ouvrirRechercheLogos([v.id]); return; // propositions logo.dev pour cette fiche
-      case "logo-retirer": await enregistrerLogo(v.id, SANS_LOGO); showToast("Logo retiré"); renderFiche(true); $("i-logo-label").closest("button").focus(); return; // « - » : monogramme ; le focus reste dans la fiche (le bouton cliqué disparaît)
-      case "logo-reactiver": await enregistrerLogo(v.id, ""); showToast("Logo automatique réactivé"); renderFiche(true); $("i-logo-label").closest("button").focus(); return; // "" : retour au logo trouvé automatiquement
-      // ---- v2 : « Contact à rajouter » depuis la liste des présences de la fiche ----
-      case "contact-presence": ouvrirContactPresence(b.dataset.id); return;
+      case "logo-retirer": await retirerLogo(v.id); showToast("Logo retiré"); break; // revient au monogramme
       case "add-echange": { // échange daté ajouté à la main
         const texte = $("h-text").value.trim(); // texte de l'échange
         if (!texte) { showToast("Saisissez le texte de l'échange"); return; } // obligatoire
@@ -184,6 +182,7 @@ export function renderFiche(forcer = false) {
     `<span class="badge badge--${stageSlug(v.etape)}">${escapeHtml(v.etape)}</span>`,
     v.type ? `<span class="badge">${escapeHtml(v.type)}</span>` : "",
     v.secteur ? `<span class="badge">${escapeHtml(v.secteur)}</span>` : "",
+    badgeAContacter(v), // v3 : statut « Contacter » choisi à un événement
     cerfaAEmettre(v) ? '<span class="badge badge--warning">CERFA à émettre</span>' : "",
     v.etape === "Signé" && !v.solde ? `<span class="badge badge--non-encaisse">Non encaissé · reste ${formatEuro(resteAEncaisser(v))}</span>` : "", // v2 : paiement en attente
     v.etape === "Signé" && !v.siret ? '<span class="badge badge--warning">SIRET manquant</span>' : "", // v2 : utile pour la facture / le CERFA
@@ -209,14 +208,11 @@ export function renderFiche(forcer = false) {
   const logo = logoHtml(v, { taille: "lg", apercu: apercuLogo }); // aperçu local pendant l'envoi, sinon l'image enregistrée
   if ($("fiche-logo").innerHTML !== logo) $("fiche-logo").innerHTML = logo; // évite de recharger l'image à chaque rendu
   if ($("i-logo-preview").innerHTML !== logoHtml(v, { taille: "md", apercu: apercuLogo })) $("i-logo-preview").innerHTML = logoHtml(v, { taille: "md", apercu: apercuLogo });
-  // v2 : logo choisi (adresse), logo automatique ("" → logo.dev) ou aucun ("-")
-  const choisi = !!v.logo && v.logo !== SANS_LOGO, auto = !v.logo && logosAutomatiques(v).length > 0;
-  $("i-logo-label").textContent = choisi ? "Remplacer" : "Importer";
-  $("i-logo-remove").hidden = !(choisi || auto); // quelque chose à retirer
-  $("i-logo-remove").textContent = auto ? "Ce n'est pas le bon logo" : "Retirer";
-  $("i-logo-reset").hidden = !v.logo || !rechercheActive(); // un logo choisi ou refusé → on peut revenir à l'automatique
+  $("i-logo-label").textContent = v.logo ? "Remplacer" : "Importer";
+  $("i-logo-remove").hidden = !v.logo;
   $("i-logo-auto").hidden = !rechercheActive(); // pas de clé logo.dev → pas de bouton
-  $("i-logo-hint").textContent = auto ? "Logo trouvé automatiquement (logo.dev). Pas le bon ? « Ce n'est pas le bon logo », ou importez le vôtre." : v.logo === SANS_LOGO ? "Logo automatique désactivé pour cette fiche." : "PNG, JPEG, WebP, GIF ou SVG · 5 Mo max · réduit automatiquement à 256 px";
+
+  renderDocuments(v); // v3 : documents de la fiche
 
   // ---- v2 : SIRET (aide à la recherche + état de validation) ----
   $("i-siret-annuaire").href = lienAnnuaire(v.nom);
@@ -265,7 +261,13 @@ export function renderFiche(forcer = false) {
 
   const presences = store.evenements.flatMap((evt) => evt.presences.filter((p) => p.partenaireId === v.id).map((p) => ({ evt, p }))).sort((a, b) => String(b.evt.date).localeCompare(String(a.evt.date)));
   $("count-attendance").textContent = presences.length ? `${presences.filter((x) => x.p.presence === "Oui").length} / ${presences.length}` : "";
-  majListe($("fiche-attendance"), presences.map(({ evt, p }) => `<li class="cp-item"><span style="flex:1; font-size: var(--text-sm)"><strong>${escapeHtml(evt.nom)}</strong> <span class="muted">· ${formatDate(evt.date)}</span></span>${p.presence === PRESENCE_CONTACT ? `<button type="button" class="btn btn--small" data-action="contact-presence" data-id="${escapeHtml(p.id)}">${icon("plus", "icon--sm")}Ajouter le contact</button>` : ""}<span class="badge ${p.presence === "Oui" ? "badge--success" : p.presence === "Non" ? "badge--danger" : p.presence === PRESENCE_CONTACT ? "badge--info" : "badge--warning"}">${escapeHtml(p.presence)}${p.presence === "Oui" ? ` · ${Number(p.personnes) || 0} pers.` : ""}</span></li>`).join("") || '<li class="faint" style="font-size: var(--text-sm)">Aucune invitation pour l\'instant.</li>', true);
+  // v3 : le statut se modifie aussi depuis la fiche ; la liste porte data-table/data-id/data-field, donc
+  // surChangement l'enregistre immédiatement comme n'importe quel champ (et le temps réel le diffuse).
+  majListe($("fiche-attendance"), presences.map(({ evt, p }) => {
+    const ton = p.presence === "Oui" ? "success" : p.presence === "Non" ? "danger" : p.presence === PRESENCE_CONTACT ? "contacter" : "warning";
+    return `<li class="cp-item attendance-item attendance-item--${ton}"><span style="flex:1; font-size: var(--text-sm)"><strong>${escapeHtml(evt.nom)}</strong> <span class="muted">· ${formatDate(evt.date)}${p.presence === "Oui" ? ` · ${Number(p.personnes) || 0} pers.` : ""}</span></span>
+      <select class="input--sm attendance-item__select" ${attrs("presences", p.id, "presence")} aria-label="Présence à ${escapeHtml(evt.nom)}">${PRESENCES.map((x) => `<option ${x === p.presence ? "selected" : ""}>${x}</option>`).join("")}</select></li>`;
+  }).join("") || '<li class="faint" style="font-size: var(--text-sm)">Aucune invitation pour l\'instant.</li>', forcer);
 }
 
 // v2 : message sous le champ SIRET (vert si valide, rouge sinon, rien si vide).

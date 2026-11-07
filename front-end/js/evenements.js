@@ -4,7 +4,7 @@ import { ficheHref } from "./router.js";
 import { formatDate, escapeHtml, showToast, slugify } from "./utils.js";
 import { aujourdhui } from "./dates.js";
 import { ouvrirModale, fermerModale } from "./modal.js";
-import { PRESENCES, PRESENCE_CONTACT } from "./selectors.js"; // v2 : « Oui », « En attente », « Non », « Contact à rajouter »
+import { PRESENCES, PRESENCE_CONTACT } from "./selectors.js"; // « Oui », « En attente », « Non », « Contacter » (v3)
 import { ouvrirNouveauContact } from "./contacts.js"; // v2 : fenêtre « Nouveau contact »
 import { icon } from "./icons.js"; // v2 : icône du bouton « Ajouter le contact »
 
@@ -12,17 +12,18 @@ let selectedId = null; // événement affiché à droite
 const $ = (id) => document.getElementById(id);
 
 // =============================================================================
-// v2 — STATUT « Contact à rajouter »
+// v3 — STATUT « Contacter » (remplace « Contact à rajouter »)
 // =============================================================================
 // Déroulé :
-//   1. un membre choisit « Contact à rajouter » dans la liste Présence d'un partenaire ;
-//   2. le statut est enregistré (il sert de pense-bête : il apparaît aussi dans « À faire ») ;
-//   3. la fenêtre « Nouveau contact » s'ouvre AUTOMATIQUEMENT, pré-remplie (entreprise, événement, noms notés) ;
-//   4a. contact enregistré → il rejoint la fiche du partenaire (+ ligne d'historique) et la présence reprend
-//       son statut précédent (« Oui » si elle n'en avait pas) ; le nom est reporté dans « Noms » s'il était vide ;
-//   4b. fenêtre fermée sans enregistrer (« Plus tard ») → le statut reste « Contact à rajouter » ; le bouton
-//       « Ajouter le contact » de la ligne (ou de la fiche) permet de reprendre plus tard.
-export function ouvrirContactPresence(presenceId, statutPrecedent = null) {
+//   1. un membre choisit « Contacter » dans la liste Présence d'un partenaire ;
+//   2. le statut est ENREGISTRÉ IMMÉDIATEMENT dans Supabase (écriture optimiste : l'écran change tout de suite,
+//      et revient en arrière avec un message si la base refuse) ;
+//   3. le temps réel le diffuse aux autres membres, et le statut remonte partout : badge « À contacter » sur
+//      les cartes du pipeline, la liste des partenaires (+ filtre) et la fiche, ligne dans « À faire » ;
+//   4. le statut disparaît de ces vues dès qu'on choisit un autre statut (ici ou depuis la fiche).
+// Le bouton « Ajouter le contact » de la ligne ouvre, si besoin, la fenêtre « Nouveau contact » pré-remplie ;
+// il ne change pas le statut.
+export function ouvrirContactPresence(presenceId) {
   const row = store.raw.presences.find((x) => x.id === presenceId); // présence concernée
   if (!row) return; // supprimée entre-temps
   const evt = store.evenements.find((e) => e.id === row.evenementId); // son événement
@@ -30,15 +31,10 @@ export function ouvrirContactPresence(presenceId, statutPrecedent = null) {
     partenaireId: row.partenaireId,
     origine: evt ? `${evt.nom} du ${formatDate(evt.date)}` : "", // affiché dans la fenêtre et dans l'historique
     noms: row.noms || "", // noms notés pour l'événement (aide au pré-remplissage)
-    onEnregistre: async (contact) => { // 4a
-      const actuelle = store.raw.presences.find((x) => x.id === presenceId); if (!actuelle) return; // toujours là ?
-      const statut = statutPrecedent && statutPrecedent !== PRESENCE_CONTACT ? statutPrecedent : "Oui"; // statut à reprendre
-      const patch = { presence: statut }; // retour au statut précédent
-      if (statut === "Oui" && !(Number(actuelle.personnes) > 0)) patch.personnes = 1; // même règle que la saisie manuelle
-      if (!String(actuelle.noms || "").trim()) patch.noms = contact.nom; // reporte le nom s'il manquait
-      try { await ecrire("presences", presenceId, patch); } catch { showToast("Contact ajouté, mais le statut de présence n'a pas pu être mis à jour"); }
-    },
-    onAnnule: () => showToast("Statut « Contact à rajouter » conservé : vous pourrez ajouter le contact plus tard") // 4b
+    onEnregistre: async (contact) => { // reporte le nom dans « Noms » s'il était vide
+      const actuelle = store.raw.presences.find((x) => x.id === presenceId); if (!actuelle) return;
+      if (!String(actuelle.noms || "").trim()) { try { await ecrire("presences", presenceId, { noms: contact.nom }); } catch { /* le contact est créé : on n'insiste pas */ } }
+    }
   });
 }
 
@@ -96,17 +92,15 @@ export function initEvenements() {
     const champ = el.dataset.field;
     const valeur = champ === "personnes" ? Math.max(0, Math.floor(Number(el.value) || 0)) : el.value;
     const patch = { [champ]: valeur };
-    const precedent = champ === "presence" ? store.raw.presences.find((x) => x.id === id)?.presence : null; // v2 : statut avant changement
     if (champ === "presence" && valeur === "Oui") { // « Oui » sans nombre → 1 personne par défaut
       const row = store.raw.presences.find((x) => x.id === id);
       if (row && !(Number(row.personnes) > 0)) patch.personnes = 1;
     }
-    try { await ecrire("presences", id, patch); showToast("Présence enregistrée"); }
-    catch { showToast("Échec de l'enregistrement"); return; }
-    if (champ === "presence" && valeur === PRESENCE_CONTACT) ouvrirContactPresence(id, precedent); // v2 : ouverture AUTOMATIQUE de la fiche contact
+    try { await ecrire("presences", id, patch); showToast(champ === "presence" && valeur === PRESENCE_CONTACT ? "Statut « Contacter » enregistré : visible sur la fiche et dans le pipeline" : "Présence enregistrée"); } // v3 : sauvegarde immédiate
+    catch (err) { console.error(err); showToast("Échec de l'enregistrement", { erreur: true }); }
   });
   tbody?.addEventListener("click", async (e) => {
-    const c = e.target.closest("[data-contact-presence]"); // v2 : reprendre un « Contact à rajouter » laissé en attente
+    const c = e.target.closest("[data-contact-presence]"); // fenêtre « Nouveau contact » (facultatif)
     if (c) { ouvrirContactPresence(c.dataset.contactPresence); return; }
     const b = e.target.closest("[data-remove-guest]"); if (!b) return;
     try { await supprimer("presences", b.dataset.removeGuest); showToast("Partenaire retiré"); }
@@ -138,7 +132,7 @@ function selectedEvent() {
 function stats(evt) {
   const p = evt.presences || [];
   const oui = p.filter((x) => x.presence === "Oui");
-  return { invites: p.length, entreprises: oui.length, personnes: oui.reduce((s, x) => s + (Number(x.personnes) || 0), 0), attente: p.filter((x) => x.presence === "En attente").length, contacts: p.filter((x) => x.presence === PRESENCE_CONTACT).length }; // v2 : + contacts à rajouter
+  return { invites: p.length, entreprises: oui.length, personnes: oui.reduce((s, x) => s + (Number(x.personnes) || 0), 0), attente: p.filter((x) => x.presence === "En attente").length, contacts: p.filter((x) => x.presence === PRESENCE_CONTACT).length }; // v3 : partenaires à contacter
 }
 
 const MOIS = ["janv", "févr", "mars", "avr", "mai", "juin", "juil", "août", "sept", "oct", "nov", "déc"];
@@ -175,7 +169,7 @@ export function renderEvenements() {
   const s = stats(evt);
   $("event-stats").innerHTML = [
     ["Entreprises présentes", s.entreprises, "success"], ["Personnes présentes", s.personnes, ""], ["En attente de réponse", `${s.attente} / ${s.invites}`, "info"],
-    ...(s.contacts ? [["Contacts à rajouter", s.contacts, "info"]] : []) // v2 : visible seulement s'il y en a
+    ...(s.contacts ? [["À contacter", s.contacts, "info"]] : []) // v3 : visible seulement s'il y en a
   ].map(([l, v, t]) => `<div class="score__fig kpi ${t ? `score__fig--${t}` : ""}"><span class="kpi__label">${l}</span><span class="kpi__value">${v}</span></div>`).join("");
 
   renderAttendance(evt);
@@ -191,7 +185,7 @@ function renderAttendance(evt) {
   tbody.innerHTML = rows.map((row) => {
     const p = getPartner(row.partenaireId);
     const name = p ? p.nom : "(fiche supprimée)";
-    const ton = row.presence === "Oui" ? "success" : row.presence === "Non" ? "danger" : row.presence === PRESENCE_CONTACT ? "info" : "warning"; // v2 : bleu pour « Contact à rajouter »
+    const ton = row.presence === "Oui" ? "success" : row.presence === "Non" ? "danger" : row.presence === PRESENCE_CONTACT ? "info" : "warning"; // bleu pour « Contacter »
     return `
       <tr data-presence-id="${escapeHtml(row.id)}">
         <td class="td--main">${p ? `<a class="link-fiche" href="${ficheHref(p.id)}">${escapeHtml(name)}</a>` : escapeHtml(name)} <span class="badge badge--${ton}" style="margin-left:4px">${escapeHtml(row.presence)}</span>${row.presence === PRESENCE_CONTACT && p ? ` <button type="button" class="btn btn--small btn--ghost" data-contact-presence="${escapeHtml(row.id)}">${icon("plus", "icon--sm")}Ajouter le contact</button>` : ""}</td>

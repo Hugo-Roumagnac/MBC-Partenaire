@@ -1,6 +1,6 @@
 // dashboard.js — écran « Tableau de bord » (§4.2). Affichage uniquement : les calculs sont dans selectors.js.
 import { store, ecrire } from "./store.js";
-import { calculerTableauDeBord, calculerRepartition } from "./selectors.js"; // v2 : + répartition automatique de l'argent
+import { calculerTableauDeBord, calculerRepartition } from "./selectors.js"; // v2 : + répartition automatique de l'argent (v3 : + budget)
 import { aujourdhui } from "./dates.js";
 import { formatEuro, formatDate, escapeHtml, showToast, stageSlug } from "./utils.js";
 import { ficheHref } from "./router.js";
@@ -53,10 +53,10 @@ export function renderDashboard() {
   const t = calculerTableauDeBord({ partenaires: store.partenaires, echeances: store.echeancesSaison, reglages: store.reglages, evenements: store.evenements }, aujourdhui()); // v2 : événements → « Contacts à rajouter »
   const { score, kpis } = t;
 
-  // ----- Score de la saison -----
-  texte("score-signed-big", formatEuro(score.signe));
+  // ----- Score de la saison (v3 : sur le TOTAL GLOBAL = montants validés + cotisations validées) -----
+  texte("score-signed-big", formatEuro(score.total));
   texte("score-goal-label", score.objectif ? formatEuro(score.objectif) : "objectif à définir");
-  texte("score-pct", `${score.objectif ? Math.round((score.signe / score.objectif) * 100) : 0} %`);
+  texte("score-pct", `${score.objectif ? Math.round((score.total / score.objectif) * 100) : 0} %`);
   texte("score-signed", formatEuro(score.signe));
   texte("score-cashed", formatEuro(score.encaisse));
   texte("score-negotiation", formatEuro(score.negocie));
@@ -65,9 +65,10 @@ export function renderDashboard() {
   if (goal && document.activeElement !== goal) goal.value = score.objectif || "";
 
   const jauge = document.querySelector("#screen-dashboard .progress");
-  jauge?.setAttribute("aria-valuenow", String(score.pctSigne));
-  jauge?.setAttribute("aria-valuetext", `${score.pctSigne} % de l'objectif signé, ${score.pctEncaisse} % encaissé`);
-  jauge?.querySelector(".progress__bar--signed")?.style.setProperty("--value", String(score.pctSigne));
+  jauge?.setAttribute("aria-valuenow", String(score.pctTotal));
+  jauge?.setAttribute("aria-valuetext", `${score.pctTotal} % de l'objectif validé (montants + cotisations), ${score.pctEncaisse} % encaissé`);
+  jauge?.querySelector(".progress__bar--signed")?.style.setProperty("--value", String(score.pctTotal));
+  renderBudget(t.budget); // v3 : ventilation sous le total global
   jauge?.querySelector(".progress__bar--cashed")?.style.setProperty("--value", String(score.pctEncaisse));
 
   // ----- 4 indicateurs -----
@@ -81,7 +82,7 @@ export function renderDashboard() {
   texte("kpi-delivered", `${kpis.contreparties.livrees} / ${kpis.contreparties.total}`);
   texte("kpi-delivered-sub", `Mécénat ${formatEuro(kpis.contreparties.mecenat)} · CERFA à émettre : ${kpis.contreparties.cerfa}`);
 
-  renderRepartition(); // v2 : sous Signé / Encaissé, montants validés et total des cotisations
+  renderRepartition(); // v2 : sous Encaissé, montants validés et total des cotisations
 
   // ----- À faire : chaque ligne ouvre la fiche -----
   texte("todo-count", String(t.todo.length));
@@ -134,8 +135,26 @@ function renderRepartition() {
   const r = calculerRepartition(store.partenaires); // calcul pur
   const ligne = (libelle, montant, titre = "") => `<span class="score__split-row"${titre ? ` title="${escapeHtml(titre)}"` : ""}><span>${libelle}</span><strong>${formatEuro(montant)}</strong></span>`;
   const signe = $("score-signed-split"), cash = $("score-cashed-split");
-  if (signe) signe.innerHTML = ligne("Montants validés", r.signe.montants, r.signe.mecenat ? `dont ${formatEuro(r.signe.mecenat)} de mécénat` : "")
-    + (r.signe.mecenat ? `<span class="score__split-note">dont mécénat ${formatEuro(r.signe.mecenat)}</span>` : "")
-    + ligne("Cotisations", r.signe.cotisations);
+  if (signe) signe.innerHTML = ""; // v3 : la ventilation du validé est désormais dans « Répartition du budget »
   if (cash) cash.innerHTML = ligne("Montants validés", r.encaisse.montants) + ligne("Cotisations", r.encaisse.cotisations, "Paiements partiels répartis au prorata du contrat de chaque partenaire");
+}
+
+// =============================================================================
+// v3 — RÉPARTITION DU BUDGET (sous le total global du « Score de la saison »)
+// =============================================================================
+// Total global = montants validés + cotisations validées (calcul : selectors.calculerBudget).
+// Les barres montrent la part de chacun dans le total ; la cotisation est comparée au demandé.
+function renderBudget(b) {
+  const part = (x) => (b.total > 0 ? Math.round((x / b.total) * 100) : 0); // % du total global
+  texte("budget-montants", formatEuro(b.montants));
+  texte("budget-montants-sub", `${part(b.montants)} % du total global`);
+  $("budget-montants-bar")?.style.setProperty("--value", String(part(b.montants)));
+  texte("budget-cotisations", formatEuro(b.cotisations));
+  const tauxCot = b.cotisationsDemandees > 0 ? Math.round((b.cotisations / b.cotisationsDemandees) * 100) : 0;
+  texte("budget-cotisations-sub", `sur ${formatEuro(b.cotisationsDemandees)} demandées (${tauxCot} %) · ${part(b.cotisations)} % du total`);
+  $("budget-cotisations-bar")?.style.setProperty("--value", String(Math.min(100, tauxCot)));
+  texte("budget-mecenat", formatEuro(b.mecenat));
+  texte("budget-mecenat-sub", b.montants > 0 ? `Inclus dans les montants validés (${Math.round((b.mecenat / b.montants) * 100)} %)` : "Inclus dans les montants validés");
+  texte("budget-nature", formatEuro(b.nature));
+  texte("budget-scope", `${b.nombre} fiche${b.nombre > 1 ? "s" : ""}${b.nonSignes ? ` · dont ${b.nonSignes} pas encore à l'étape « Signé »` : ""}`);
 }

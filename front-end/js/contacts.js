@@ -1,6 +1,6 @@
 // contacts.js — v2 : fenêtre « Nouveau contact » réutilisable.
-// Utilisée par l'écran Événements : choisir le statut « Contact à rajouter » pour un partenaire
-// ouvre AUTOMATIQUEMENT cette fenêtre, pré-remplie avec le partenaire et les noms notés pour l'événement.
+// Utilisée par l'écran Événements : le bouton « Ajouter le contact » d'une ligne de présence
+// ouvre cette fenêtre, pré-remplie avec le partenaire et les noms notés pour l'événement.
 // Le contact est enregistré dans la fiche du partenaire (table « contacts ») et tracé dans son historique.
 import { store, creerContact } from "./store.js"; // état + action métier
 import { showToast } from "./utils.js"; // messages
@@ -31,7 +31,7 @@ export function ouvrirNouveauContact({ partenaireId, origine = "", noms = "", on
 export function initContacts() {
   const modal = $("modal-contact"), form = $("form-contact"); // éléments
   if (!form) return; // page sans la fenêtre
-  // Fermeture SANS enregistrement (Annuler, Échap, fond) → on prévient l'appelant (le statut reste « Contact à rajouter »)
+  // Fermeture SANS enregistrement (Annuler, Échap, fond) → on prévient l'appelant s'il le demande
   new MutationObserver(() => { if (modal.hidden && contexte && !enregistre) { const c = contexte; contexte = null; c.onAnnule?.(); } }).observe(modal, { attributes: true, attributeFilter: ["hidden"] });
   form.addEventListener("submit", async (e) => {
     e.preventDefault(); // pas de rechargement

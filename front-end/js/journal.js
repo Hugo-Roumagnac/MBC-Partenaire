@@ -17,7 +17,7 @@ import { icon } from "./icons.js"; // icônes
 const $ = (id) => document.getElementById(id); // raccourci
 
 // ---------- Libellés lisibles ----------
-export const LIBELLES_TABLES = { partenaires: "Fiche", contrats: "Contrat", echeances: "Échéance", contreparties: "Contrepartie", contacts: "Contact", echanges: "Historique", evenements: "Événement", presences: "Présence", reglages: "Réglages" };
+export const LIBELLES_TABLES = { partenaires: "Fiche", contrats: "Contrat", echeances: "Échéance", contreparties: "Contrepartie", contacts: "Contact", echanges: "Historique", evenements: "Événement", presences: "Présence", reglages: "Réglages", documents: "Document" }; // v3 : + documents
 const LIBELLES_ACTIONS = { INSERT: "Création", UPDATE: "Modification", DELETE: "Suppression" };
 const TONS_ACTIONS = { INSERT: "success", UPDATE: "info", DELETE: "danger" };
 const LIBELLES_CHAMPS = {
@@ -27,6 +27,7 @@ const LIBELLES_CHAMPS = {
   dontMecenat: "Dont mécénat", cerfaEmis: "CERFA émis", natureValeur: "Apport en nature", natureDescription: "Description de l'apport", modalites: "Modalités",
   datePrevue: "Date prévue", montant: "Montant", paye: "Payé", note: "Note", libelle: "Libellé", livree: "Livrée", fonction: "Fonction", email: "E-mail", tel: "Téléphone",
   presence: "Présence", personnes: "Personnes", noms: "Noms", categorie: "Catégorie", date: "Date", texte: "Texte", objectif: "Objectif",
+  chemin: "Emplacement du fichier", taille: "Taille", typeMime: "Type de fichier", ajoutePar: "Ajouté par", contenu: "Fichier", // v3 : documents
   saisonEnCours: "Saison en cours", saisonPrecedente: "Saison précédente", responsables: "Responsables", catalogue: "Catalogue", categories: "Catégories d'affectation", saison: "Saison"
 };
 const CHAMPS_MONTANTS = new Set(["montantDemande", "cotisationDemandee", "montantValide", "cotisationValidee", "dontMecenat", "natureValeur", "montant", "objectif"]); // affichés en euros
@@ -36,7 +37,7 @@ const CHAMPS_DATES = new Set(["prochaineActionDate", "premierContact", "datePrev
 function valeur(champ, v) {
   if (v === null || v === undefined || v === "") return '<span class="faint">vide</span>';
   if (typeof v === "boolean") return v ? "Oui" : "Non";
-  if (champ === "logo") return v === "-" ? "aucun (automatique désactivé)" : String(v).startsWith("http") || String(v).startsWith("data:") ? "nouvelle image" : escapeHtml(String(v));
+  if (champ === "logo") return String(v).startsWith("http") || String(v).startsWith("data:") ? "nouvelle image" : escapeHtml(String(v));
   if (CHAMPS_MONTANTS.has(champ)) return formatEuro(v);
   if (CHAMPS_DATES.has(champ)) return formatDate(String(v).slice(0, 10));
   if (champ === "siret") return escapeHtml(formaterSiret(v));

@@ -162,28 +162,24 @@ const URL = BASE + "app.html";
   await B.goto(URL + "#/partenaires");
   await B.waitForSelector('tr[data-partner-id="entreprise-test-e2e"] .plogo--img img', { timeout: 4000 }); // temps réel inter-onglets
 
-  console.log("v2 — Répartition montants validés / cotisations sous Signé et Encaissé...");
+  console.log("v2 — Répartition montants validés / cotisations sous Encaissé (v3 : le validé est ventilé dans « Répartition du budget »)...");
   await A.goto(URL + "#/dashboard");
   const euros = (t) => Number(String(t).replace(/[^0-9,]/g, "").replace(",", ".")); // « 1 200 € » → 1200
-  for (const [total, split] of [["#score-signed", "#score-signed-split"], ["#score-cashed", "#score-cashed-split"]]) {
+  for (const [total, split] of [["#score-cashed", "#score-cashed-split"]]) {
     const parts = await A.$$eval(`${split} .score__split-row strong`, (els) => els.map((e) => e.textContent));
     assert.equal(parts.length, 2, "Deux lignes : montants validés et cotisations");
     assert.equal(parts.reduce((t, x) => t + euros(x), 0), euros(await A.textContent(total)), `La répartition de ${total} doit retomber sur le total`);
   }
 
-  console.log("v2 — Logos automatiques affichés sans aucun clic, refus possible depuis la fiche...");
+  console.log("v2 — Logos automatiques : recherche groupée puis enregistrement...");
   await A.goto(URL + "#/partenaires");
-  await A.waitForSelector('tr[data-partner-id="harmonie"] .plogo--auto img'); // logo.dev trouvé d'après le nom
+  await A.click("#btn-logos-auto");
+  await A.waitForSelector('#modal-logos:not([hidden]) .logo-ligne[data-id="harmonie"] .logo-choix__opt img');
+  await A.waitForFunction(() => !document.querySelector("#logos-liste").textContent.includes("Recherche…")); // toutes les fiches traitées
+  assert.equal(await A.locator('#logos-liste input[type=radio]:checked:not([value=""])').count(), 1, "Seule Harmonie a un logo trouvé : 1 présélection");
+  await A.click("#logos-enregistrer");
+  await A.waitForSelector('tr[data-partner-id="harmonie"] .plogo--img img');
   assert.match(await A.getAttribute('tr[data-partner-id="harmonie"] .plogo img', "src"), /^https:\/\/img\.logo\.dev\/name\/Harmonie/);
-  await A.waitForFunction(() => !document.querySelector('tr[data-partner-id="garage-martin"] .plogo img')); // logo inconnu (404) → monogramme
-  await A.goto(URL + "#/partenaires?fiche=harmonie");
-  await A.waitForSelector("#fiche-partenaire.is-open #i-logo-remove:not([hidden])");
-  await A.click("#i-logo-remove"); // « Ce n'est pas le bon logo »
-  await A.waitForFunction(() => !document.querySelector("#fiche-logo img")); // monogramme
-  await A.click("#i-logo-reset"); // « Revenir au logo automatique »
-  await A.waitForSelector("#fiche-logo .plogo--auto img");
-  await A.keyboard.press("Escape"); // le focus est resté dans la fiche : Échap la ferme
-  await A.waitForFunction(() => !document.getElementById("fiche-partenaire").classList.contains("is-open"));
 
   console.log("v2 — Logo proposé à la création d'après le nom...");
   await A.click("#btn-new-partner");
@@ -193,14 +189,47 @@ const URL = BASE + "app.html";
   await A.waitForSelector("#fiche-partenaire.is-open #fiche-logo .plogo--img img");
   await A.keyboard.press("Escape");
 
-  console.log("v2 — Événements : « Contact à rajouter » ouvre la fiche contact...");
+  console.log("v3 — Événements : « Contacter » est enregistré et remonte sur la fiche et le pipeline...");
   await A.goto(URL + "#/evenements");
   const ligne = A.locator("#attendance-tbody tr[data-presence-id]").first();
-  await ligne.locator("[data-field=presence]").selectOption("Contact à rajouter");
+  const presenceId = await ligne.getAttribute("data-presence-id");
+  await ligne.locator("[data-field=presence]").selectOption("Contacter");
+  await A.waitForFunction((id) => JSON.parse(localStorage.getItem("mbc:presences")).find((x) => x.id === id)?.presence === "Contacter", presenceId); // enregistré tout de suite
+  assert.equal(await A.locator("#modal-contact:not([hidden])").count(), 0, "« Contacter » ne doit plus ouvrir la fenêtre contact d'office");
+  await B.goto(URL + "#/pipeline");
+  await B.waitForSelector("#kanban .pcard .badge--contacter"); // l'autre membre voit le badge sans recharger
+  await A.goto(URL + "#/evenements");
+  await A.locator(`#attendance-tbody tr[data-presence-id="${presenceId}"] [data-contact-presence]`).click(); // ajout de contact facultatif
   await A.waitForSelector("#modal-contact:not([hidden])");
   await A.fill("#ct-nom", "Contact E2E");
   await A.click("#form-contact [type=submit]");
   await A.waitForFunction(() => document.getElementById("modal-contact").hidden);
+
+  console.log("v3 — Documents : dépôt d'une convention et d'un autre document...");
+  await A.goto(URL + "#/partenaires?fiche=entreprise-test-e2e");
+  await A.waitForSelector("#fiche-partenaire.is-open #fiche-documents .doczone--convention");
+  assert.match(await A.textContent("#fiche-documents .doczone--convention"), /Manquante/);
+  await A.setInputFiles('[data-doc-input="convention"]', { name: "convention-signee.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\n%test\n") });
+  await A.waitForSelector("#fiche-documents .doczone--convention .doclist__item");
+  assert.match(await A.textContent("#fiche-documents .doczone--convention"), /Reçue/);
+  await A.setInputFiles('[data-doc-input="autre"]', { name: "RIB.png", mimeType: "image/png", buffer: PNG });
+  await A.waitForSelector("#fiche-documents .doczone--autre .doclist__item");
+  await A.setInputFiles('[data-doc-input="autre"]', { name: "virus.exe", mimeType: "application/x-msdownload", buffer: Buffer.from("MZ") }); // format refusé
+  await A.waitForTimeout(200);
+  assert.equal(await A.locator("#fiche-documents .doczone--autre .doclist__item").count(), 1, "Un .exe doit être refusé");
+  const telechargementDoc = A.waitForEvent("download");
+  await A.click("#fiche-documents .doczone--convention [data-doc-action=telecharger]");
+  assert.equal((await telechargementDoc).suggestedFilename(), "convention-signee.pdf");
+  const suppr = A.locator("#fiche-documents .doczone--autre [data-doc-action=supprimer]");
+  await suppr.click(); await A.locator("#fiche-documents .doczone--autre [data-doc-action=supprimer]").click(); // deux clics
+  await A.waitForFunction(() => !document.querySelector("#fiche-documents .doczone--autre .doclist__item"));
+  await A.keyboard.press("Escape");
+
+  console.log("v3 — Tableau de bord : total global = montants validés + cotisations validées...");
+  await A.goto(URL + "#/dashboard");
+  await A.waitForFunction(() => document.getElementById("budget-montants").textContent !== "—");
+  const lire = async (sel) => euros(await A.textContent(sel));
+  assert.equal(Math.round((await lire("#score-signed-big")) * 100), Math.round(((await lire("#budget-montants")) + (await lire("#budget-cotisations"))) * 100), "Le total global doit être la somme des deux sous-totaux");
 
   console.log("v2 — Journal : qui / quoi / compte, puis restauration d'une valeur...");
   await A.goto(URL + "#/journal");

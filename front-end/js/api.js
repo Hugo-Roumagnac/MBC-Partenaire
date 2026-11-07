@@ -3,8 +3,8 @@ import { CONFIG } from "./config.js"; // mode et identifiants
 import { seedTables } from "./mock-seed.js"; // données de départ du mode mock
 import { genererJeton, empreinte, normaliserEmail, emailValide, jetonPlausible, DUREE_INVITATION_HEURES } from "./invitations-core.js"; // invitations
 
-export const TABLES = ["partenaires", "contrats", "echeances", "contreparties", "contacts", "echanges", "evenements", "presences", "reglages", "membres", "journal"]; // toutes les tables lues (v2 : + journal)
-export const TABLES_ENFANTS = ["contrats", "echeances", "contreparties", "contacts", "echanges", "presences"]; // tables rattachées à une fiche (supprimées en cascade avec elle)
+export const TABLES = ["partenaires", "contrats", "echeances", "contreparties", "contacts", "echanges", "evenements", "presences", "reglages", "membres", "journal", "documents"]; // toutes les tables lues (v2 : + journal ; v3 : + documents)
+export const TABLES_ENFANTS = ["contrats", "echeances", "contreparties", "contacts", "echanges", "presences", "documents"]; // tables rattachées à une fiche (supprimées en cascade avec elle)
 export const JOURNAL_MAX = 1000; // v2 : nombre d'entrées de journal chargées (les plus récentes) — le reste reste consultable dans Supabase
 const CHAMPS_TECHNIQUES = ["modifieLe", "modifiePar", "creeLe"]; // v2 : ignorés par le journal (comme dans le trigger SQL)
 
@@ -18,6 +18,7 @@ const pk = (table) => (table === "membres" ? "email" : "id"); // clé primaire d
 // pour que le front (restauration, affichage) manipule partout les mêmes noms de champs.
 function normaliser(table, ligne) {
   const l = mapKeys(ligne, toCamel); // colonnes de premier niveau
+  if (table === "presences" && l.presence === "Contact à rajouter") l.presence = "Contacter"; // v3 : ancienne valeur (avant migration-v3.sql) lue sous son nouveau nom
   if (table !== "journal") return l; // cas général
   if (l.avant) l.avant = mapKeys(l.avant, toCamel); // anciennes valeurs
   if (l.apres) l.apres = mapKeys(l.apres, toCamel); // nouvelles valeurs
@@ -292,4 +293,42 @@ export async function supprimerFichierLogo(url) {
   const i = url.indexOf(repere); if (i < 0) return; // URL étrangère : on n'y touche pas
   const chemin = decodeURIComponent(url.slice(i + repere.length).split("?")[0]); // « <id>/<horodatage>.webp »
   await client.storage.from("logos").remove([chemin]).catch(() => {}); // on ignore les erreurs
+}
+
+// ---------- v3 : documents des partenaires (convention signée, autres documents) ----------
+// Mode supabase : bucket PRIVÉ « documents » (schema.sql §3 ter). On ne stocke jamais d'URL publique :
+// chaque ouverture demande une adresse signée valable 2 minutes.
+// Mode mock : le fichier est gardé en base64 dans la ligne (champ « contenu ») — limité à 1,5 Mo,
+// car le stockage local du navigateur ne dépasse pas ~5 Mo.
+export const DOCUMENT_MAX_OCTETS = 15 * 1024 * 1024; // 15 Mo (= file_size_limit du bucket)
+export const DOCUMENT_MAX_OCTETS_MOCK = 1.5 * 1024 * 1024;
+
+// Nom de fichier sûr pour une clé de stockage : sans accents, espaces ni caractères spéciaux.
+export const nomFichierSur = (nom) => String(nom || "document").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^A-Za-z0-9._-]+/g, "-").replace(/-+/g, "-").replace(/^[-.]+|-+$/g, "").slice(-100) || "document";
+
+// Dépose le fichier puis renvoie les champs à enregistrer dans public.documents.
+export async function deposerDocument(partenaireId, categorie, fichier) {
+  const chemin = `${partenaireId}/${categorie}/${Date.now()}-${nomFichierSur(fichier.name)}`; // jamais deux fois la même clé
+  if (CONFIG.MODE === "supabase") {
+    const { error } = await client.storage.from("documents").upload(chemin, fichier, { contentType: fichier.type || "application/octet-stream", upsert: false });
+    if (error) throw error; // droits, taille, type refusé, réseau…
+    return { chemin };
+  }
+  const contenu = await new Promise((ok, ko) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = () => ko(r.error); r.readAsDataURL(fichier); });
+  return { chemin, contenu }; // mock : le fichier voyage dans la ligne
+}
+
+// Adresse pour ouvrir / télécharger un document (signée et temporaire en mode supabase).
+export async function adresseDocument(doc, { telecharger = false } = {}) {
+  if (CONFIG.MODE !== "supabase") return doc.contenu || "";
+  const { data, error } = await client.storage.from("documents").createSignedUrl(doc.chemin, 120, telecharger ? { download: doc.nom } : undefined);
+  if (error) throw error;
+  return data.signedUrl;
+}
+
+// Supprime des fichiers du bucket (best-effort : un échec laisse seulement un fichier orphelin).
+export async function supprimerFichiersDocuments(chemins) {
+  const liste = (chemins || []).filter(Boolean);
+  if (CONFIG.MODE !== "supabase" || !liste.length) return;
+  await client.storage.from("documents").remove(liste).catch(() => {});
 }

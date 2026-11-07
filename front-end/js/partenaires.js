@@ -2,7 +2,7 @@
 import { store, creerPartenaire } from "./store.js";
 import { ficheHref, naviguer } from "./router.js";
 import { ETAPES_NEGOCIATION, totalValide } from "./selectors.js";
-import { formatEuro, formatDate, dueClass, stageSlug, montantAffiche, montantMeta, escapeHtml, showToast, remplirResponsables } from "./utils.js";
+import { formatEuro, formatDate, dueClass, stageSlug, montantAffiche, montantMeta, escapeHtml, showToast, remplirResponsables, badgeAContacter } from "./utils.js";
 import { ouvrirModale, fermerModale } from "./modal.js";
 import { icon } from "./icons.js"; // v2 : icônes du bouton SIRET
 import { validerSiret, formaterSiret } from "./selectors.js"; // v2 : règle SIRET
@@ -19,6 +19,7 @@ const FILTERS = {
   perdus: (p) => p.etape === "Perdu",
   archives: (p) => p.etape === "Archivé",
   "sans-siret": (p) => p.etape !== "Archivé" && p.etape !== "Perdu" && !p.siret, // v2 : fiches actives à compléter
+  "a-contacter": (p) => (p.aContacter || []).length > 0, // v3 : statut « Contacter » sur au moins un événement
   tous: () => true
 };
 
@@ -197,7 +198,7 @@ export function renderTable() {
             </span>
           </span>
         </td>
-        <td data-label="Étape"><span class="badge badge--${stageSlug(p.etape)}">${escapeHtml(p.etape)}</span></td>
+        <td data-label="Étape"><span class="badge badge--${stageSlug(p.etape)}">${escapeHtml(p.etape)}</span>${badgeAContacter(p, { court: true }) ? ` ${badgeAContacter(p, { court: true })}` : ""}</td>
         <td data-label="Responsable">${p.responsable ? escapeHtml(p.responsable) : '<span class="faint">—</span>'}</td>
         <td data-label="SIRET">${p.siret
           ? `<button type="button" class="siret-btn" data-siret="${escapeHtml(p.id)}" title="Modifier le SIRET de ${escapeHtml(p.nom)}"><span class="siret-btn__num">${escapeHtml(formaterSiret(p.siret))}</span>${icon("pencil", "icon--sm")}</button>`

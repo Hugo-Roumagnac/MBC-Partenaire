@@ -10,6 +10,10 @@
 --   • partenaires.logo   : adresse du logo (URL publique Supabase Storage) — voir §5
 --   • presences.presence : nouvelle valeur « Contact à rajouter »
 --   • journal + trigger  : historique « qui modifie quoi, depuis quel compte » (§6)
+--
+-- ÉVOLUTIONS v3 (base déjà en service : lancer plutôt supabase/migration-v3.sql) :
+--   • presences.presence : « Contact à rajouter » devient « Contacter »
+--   • documents          : convention signée + autres documents (bucket privé « documents », §3 ter)
 -- =============================================================================
 
 -- ---------------------------------------------------------------------------
@@ -130,11 +134,25 @@ create table if not exists public.presences (
   id            uuid primary key default gen_random_uuid(),
   evenement_id  text not null references public.evenements(id) on delete cascade,
   partenaire_id text not null references public.partenaires(id) on delete cascade,
-  presence      text not null default 'En attente' check (presence in ('Oui','En attente','Non','Contact à rajouter')), -- v2 : + « Contact à rajouter »
+  presence      text not null default 'En attente' check (presence in ('Oui','En attente','Non','Contacter')), -- v3 : « Contacter » = un contact est à établir
   personnes     integer not null default 0 check (personnes >= 0),
   noms          text not null default '',
   cree_le       timestamptz not null default now(),
   unique (evenement_id, partenaire_id)
+);
+
+-- v3 — Documents d'un partenaire (le fichier vit dans le bucket privé « documents », voir §3 ter)
+create table if not exists public.documents (
+  id            uuid primary key default gen_random_uuid(),
+  partenaire_id text not null references public.partenaires(id) on delete cascade,
+  categorie     text not null default 'autre' check (categorie in ('convention','autre')), -- « Convention » ou « Autres documents »
+  nom           text not null,                               -- nom d'origine du fichier
+  chemin        text not null,                               -- clé dans le bucket : <id>/<categorie>/<horodatage>-<nom>
+  taille        bigint not null default 0 check (taille >= 0),
+  type_mime     text not null default '',
+  saison        text not null default '',
+  ajoute_par    text not null default '',
+  cree_le       timestamptz not null default now()
 );
 
 -- v2 — Journal d'audit (« qui modifie quoi et depuis quel compte »).
@@ -161,7 +179,8 @@ alter table public.partenaires add column if not exists logo  text not null defa
 alter table public.partenaires drop constraint if exists partenaires_siret_check;
 alter table public.partenaires add  constraint partenaires_siret_check check (siret = '' or siret ~ '^[0-9]{14}$');
 alter table public.presences   drop constraint if exists presences_presence_check;
-alter table public.presences   add  constraint presences_presence_check check (presence in ('Oui','En attente','Non','Contact à rajouter'));
+update public.presences set presence = 'Contacter' where presence = 'Contact à rajouter'; -- v3
+alter table public.presences   add  constraint presences_presence_check check (presence in ('Oui','En attente','Non','Contacter'));
 
 -- Index sur les clés étrangères (performance)
 create index if not exists contrats_partenaire_idx      on public.contrats (partenaire_id);
@@ -171,6 +190,7 @@ create index if not exists contacts_partenaire_idx      on public.contacts (part
 create index if not exists echanges_partenaire_idx      on public.echanges (partenaire_id);
 create index if not exists presences_evenement_idx      on public.presences (evenement_id);
 create index if not exists presences_partenaire_idx     on public.presences (partenaire_id);
+create index if not exists documents_partenaire_idx     on public.documents (partenaire_id);
 create index if not exists journal_le_idx               on public.journal (le desc);
 create index if not exists journal_partenaire_idx       on public.journal (partenaire_id, le desc);
 
@@ -197,7 +217,7 @@ grant execute on function public.est_membre() to authenticated;
 do $$
 declare t text;
 begin
-  foreach t in array array['partenaires','contrats','echeances','contreparties','contacts','echanges','evenements','presences'] loop
+  foreach t in array array['partenaires','contrats','echeances','contreparties','contacts','echanges','evenements','presences','documents'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists "membres uniquement" on public.%I', t);
     execute format('create policy "membres uniquement" on public.%I for all to authenticated using (public.est_membre()) with check (public.est_membre())', t);
@@ -295,7 +315,7 @@ revoke all on function public.journaliser() from public;
 do $$
 declare t text;
 begin
-  foreach t in array array['partenaires','contrats','echeances','contreparties','contacts','echanges','evenements','presences','reglages'] loop
+  foreach t in array array['partenaires','contrats','echeances','contreparties','contacts','echanges','evenements','presences','reglages','documents'] loop
     execute format('drop trigger if exists journaliser on public.%I', t);
     execute format('create trigger journaliser after insert or update or delete on public.%I for each row execute function public.journaliser()', t);
   end loop;
@@ -307,7 +327,7 @@ end $$;
 do $$
 declare t text;
 begin
-  foreach t in array array['partenaires','contrats','echeances','contreparties','contacts','echanges','evenements','presences','reglages','membres','journal'] loop
+  foreach t in array array['partenaires','contrats','echeances','contreparties','contacts','echanges','evenements','presences','reglages','membres','journal','documents'] loop
     execute format('alter table public.%I replica identity full', t);
     if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t) then
       execute format('alter publication supabase_realtime add table public.%I', t);
@@ -336,6 +356,30 @@ drop policy if exists "logos : membres suppriment" on storage.objects;
 create policy "logos : membres deposent"  on storage.objects for insert to authenticated with check (bucket_id = 'logos' and public.est_membre());
 create policy "logos : membres remplacent" on storage.objects for update to authenticated using (bucket_id = 'logos' and public.est_membre()) with check (bucket_id = 'logos' and public.est_membre());
 create policy "logos : membres suppriment" on storage.objects for delete to authenticated using (bucket_id = 'logos' and public.est_membre());
+
+-- ---------------------------------------------------------------------------
+-- 3 ter. STOCKAGE DES DOCUMENTS (v3) — bucket PRIVÉ « documents »
+-- ---------------------------------------------------------------------------
+-- Convention signée, factures, RIB… ne sont pas publics : bucket privé, lecture réservée aux membres.
+-- Le site dépose le fichier, crée la ligne public.documents, puis demande une adresse de
+-- téléchargement temporaire (signée, 2 minutes) à chaque ouverture. 15 Mo max par fichier.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('documents', 'documents', false, 15728640, array[
+  'application/pdf',
+  'image/png','image/jpeg','image/webp','image/heic',
+  'application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.oasis.opendocument.text','application/vnd.oasis.opendocument.spreadsheet',
+  'text/plain','text/csv'])
+on conflict (id) do update set public = excluded.public,
+  file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists "documents : membres lisent"     on storage.objects;
+drop policy if exists "documents : membres deposent"   on storage.objects;
+drop policy if exists "documents : membres suppriment" on storage.objects;
+create policy "documents : membres lisent"     on storage.objects for select to authenticated using (bucket_id = 'documents' and public.est_membre());
+create policy "documents : membres deposent"   on storage.objects for insert to authenticated with check (bucket_id = 'documents' and public.est_membre());
+create policy "documents : membres suppriment" on storage.objects for delete to authenticated using (bucket_id = 'documents' and public.est_membre());
 
 -- ---------------------------------------------------------------------------
 -- 4. DONNÉES DE DÉPART

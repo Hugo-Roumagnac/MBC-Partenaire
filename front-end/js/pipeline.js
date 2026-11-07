@@ -13,7 +13,8 @@ import {
   montantMeta, // mention descriptive associée au montant
   escapeHtml, // neutralisation des caractères HTML
   showToast, // affichage d'un toast temporaire
-  remplirResponsables // alimentation dynamique des options du filtre
+  remplirResponsables, // alimentation dynamique des options du filtre
+  badgeAContacter // v3 : badge « À contacter » (statut « Contacter » d'un événement)
 } from "./utils.js";
 import { icon } from "./icons.js";
 import { naviguer } from "./router.js";
@@ -160,6 +161,7 @@ function cardHtml(p) {
       <span class="pcard__amount">${amount ? formatEuro(amount) : "—"}${meta ? ` <small>${escapeHtml(meta)}</small>` : ""}</span>
       ${encaissement}
       <div class="pcard__badges">
+        ${badgeAContacter(p)}
         ${p.type && p.type !== "Sponsoring" ? `<span class="badge badge--info">${escapeHtml(p.type)}</span>` : ""}
         ${p.secteur ? `<span class="badge">${escapeHtml(p.secteur)}</span>` : ""}
       </div>

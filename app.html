@@ -110,7 +110,7 @@
           <article class="card score" aria-labelledby="h-score">
             <div class="score__top">
               <div>
-                <h3 id="h-score" class="score__main-label">Score de la saison — montant signé</h3>
+                <h3 id="h-score" class="score__main-label">Score de la saison — total global <span class="score__main-formula">(montants validés + cotisations validées)</span></h3>
                 <div class="score__main">
                   <span id="score-signed-big" class="score__signed">—</span>
                   <span class="score__goal">/ <span id="score-goal-label">—</span></span>
@@ -125,23 +125,55 @@
             </div>
 
             <div>
-              <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Montant signé et encaissé par rapport à l'objectif">
+              <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Total global validé et montant encaissé par rapport à l'objectif">
                 <div class="progress__bar progress__bar--signed" style="--value: 0"></div>
                 <div class="progress__bar progress__bar--cashed" style="--value: 0"></div>
               </div>
               <div class="progress__legend">
-                <span><span class="legend-dot legend-dot--signed"></span>Signé</span>
+                <span><span class="legend-dot legend-dot--signed"></span>Total global validé</span>
                 <span><span class="legend-dot legend-dot--cashed"></span>Encaissé</span>
               </div>
             </div>
 
+            <!-- v3 : ventilation du total global (dashboard.renderBudget, calcul : selectors.calculerBudget) -->
+            <section class="budget" aria-labelledby="h-budget">
+              <div class="budget__head">
+                <h4 id="h-budget" class="budget__title">Répartition du budget</h4>
+                <span class="budget__scope" id="budget-scope"></span>
+              </div>
+              <div class="budget__grid">
+                <div class="budget__tile budget__tile--montants">
+                  <span class="budget__label">Total montants validés</span>
+                  <span class="budget__value" id="budget-montants">—</span>
+                  <span class="budget__sub" id="budget-montants-sub"></span>
+                  <span class="budget__bar" aria-hidden="true"><span id="budget-montants-bar" style="--value: 0"></span></span>
+                </div>
+                <div class="budget__tile budget__tile--cotisations">
+                  <span class="budget__label">Total cotisations validées</span>
+                  <span class="budget__value" id="budget-cotisations">—</span>
+                  <span class="budget__sub" id="budget-cotisations-sub"></span>
+                  <span class="budget__bar" aria-hidden="true"><span id="budget-cotisations-bar" style="--value: 0"></span></span>
+                </div>
+                <div class="budget__tile budget__tile--mecenat">
+                  <span class="budget__label">Total mécénat</span>
+                  <span class="budget__value" id="budget-mecenat">—</span>
+                  <span class="budget__sub" id="budget-mecenat-sub">Inclus dans les montants validés</span>
+                </div>
+                <div class="budget__tile budget__tile--nature">
+                  <span class="budget__label">Total apports en nature</span>
+                  <span class="budget__value" id="budget-nature">—</span>
+                  <span class="budget__sub">Valorisation, hors total global</span>
+                </div>
+              </div>
+            </section>
+
             <div class="score__figures">
-              <div class="score__fig score__fig--success kpi"><span class="kpi__label">Signé</span><span id="score-signed" class="kpi__value">—</span><span class="score__split" id="score-signed-split"></span></div>
+              <div class="score__fig score__fig--success kpi"><span class="kpi__label">Dont fiches « Signé »</span><span id="score-signed" class="kpi__value">—</span><span class="score__split" id="score-signed-split"></span></div>
               <div class="score__fig kpi"><span class="kpi__label">Encaissé</span><span id="score-cashed" class="kpi__value">—</span><span class="score__split" id="score-cashed-split"></span></div>
               <div class="score__fig score__fig--info kpi"><span class="kpi__label">En négociation</span><span id="score-negotiation" class="kpi__value">—</span></div>
               <div class="score__fig kpi"><span class="kpi__label">Reste à trouver</span><span id="score-remaining" class="kpi__value">—</span></div>
             </div>
-            <!-- v2 : sous « Signé » et « Encaissé », répartition montants validés / cotisations (dashboard.renderRepartition) -->
+            <!-- v2 : sous « Encaissé », répartition montants validés / cotisations (dashboard.renderRepartition) -->
           </article>
 
           <!-- ---- 4 indicateurs ---- -->
@@ -277,6 +309,8 @@
               <p class="screen__sub"><span id="partners-count">—</span></p>
             </div>
             <div class="screen__actions">
+              <!-- v2 : recherche groupée des logos manquants (logos-auto.js) -->
+              <button type="button" id="btn-logos-auto" class="btn" title="Trouver automatiquement les logos des fiches qui n'en ont pas"><svg class="icon icon--sm"><use href="#i-image"/></svg>Logos automatiques</button>
               <button type="button" id="btn-new-partner" class="btn btn--accent"><svg class="icon icon--sm"><use href="#i-plus"/></svg>Nouveau partenaire</button>
             </div>
           </div>
@@ -301,6 +335,7 @@
             <button type="button" class="chip" data-filter="perdus" aria-pressed="false">Perdus <span class="chip__count"></span></button>
             <button type="button" class="chip" data-filter="archives" aria-pressed="false">Archivés <span class="chip__count"></span></button>
             <button type="button" class="chip" data-filter="sans-siret" aria-pressed="false" title="Fiches actives sans numéro SIRET">Sans SIRET <span class="chip__count"></span></button>
+            <button type="button" class="chip" data-filter="a-contacter" aria-pressed="false" title="Statut « Contacter » choisi pour un événement">À contacter <span class="chip__count"></span></button>
             <button type="button" class="chip" data-filter="tous" aria-pressed="false">Tous <span class="chip__count"></span></button>
           </div>
 
@@ -674,14 +709,18 @@
                 <div class="logo-field">
                   <span id="i-logo-preview"></span>
                   <button type="button" class="btn btn--small" data-action="logo-choisir"><svg class="icon icon--sm"><use href="#i-upload"/></svg><span id="i-logo-label">Importer</span></button>
-                  <button type="button" class="btn btn--small" data-action="logo-auto" id="i-logo-auto"><svg class="icon icon--sm"><use href="#i-sparkle"/></svg>Autres logos trouvés</button>
+                  <button type="button" class="btn btn--small" data-action="logo-auto" id="i-logo-auto"><svg class="icon icon--sm"><use href="#i-sparkle"/></svg>Chercher automatiquement</button>
                   <button type="button" class="btn btn--small btn--ghost" data-action="logo-retirer" id="i-logo-remove">Retirer</button>
-                  <button type="button" class="btn btn--small btn--ghost" data-action="logo-reactiver" id="i-logo-reset">Revenir au logo automatique</button>
                 </div>
-                <span class="field__hint" id="i-logo-hint">PNG, JPEG, WebP, GIF ou SVG · 5 Mo max · réduit automatiquement à 256 px</span>
+                <span class="field__hint">PNG, JPEG, WebP, GIF ou SVG · 5 Mo max · réduit automatiquement à 256 px</span>
                 <input id="f-logo-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" hidden>
               </div>
               <div class="field full"><label for="i-notes">Notes</label><textarea id="i-notes" data-table="partenaires" data-field="notes"></textarea></div>
+              <!-- v3 : documents (glisser-déposer) — deux emplacements, stockés dans le bucket privé « documents ». Voir documents.js -->
+              <div class="field full">
+                <span class="field__label">Documents <span class="section__count" id="count-documents"></span></span>
+                <div class="docs-grid" id="fiche-documents"></div>
+              </div>
             </div>
             <div class="danger-zone">
               <p class="field__hint">Premier contact : <span id="i-first">—</span><br>Dernière modification : <span id="i-updated">—</span></p>
@@ -811,7 +850,7 @@
     </div>
   </div>
 
-  <!-- ===== v2 — Modale : nouveau contact (ouverte par le statut « Contact à rajouter » des événements) ===== -->
+  <!-- ===== v2 — Modale : nouveau contact (bouton « Ajouter le contact » d'une ligne de présence, écran Événements) ===== -->
   <div id="modal-contact" class="modal" hidden>
     <div class="modal__backdrop" data-close-modal></div>
     <div class="modal__panel modal__panel--sm card" role="dialog" aria-modal="true" aria-labelledby="h-contact">
