@@ -171,15 +171,19 @@ const URL = BASE + "app.html";
     assert.equal(parts.reduce((t, x) => t + euros(x), 0), euros(await A.textContent(total)), `La répartition de ${total} doit retomber sur le total`);
   }
 
-  console.log("v2 — Logos automatiques : recherche groupée puis enregistrement...");
+  console.log("v2 — Logos automatiques affichés sans aucun clic, refus possible depuis la fiche...");
   await A.goto(URL + "#/partenaires");
-  await A.click("#btn-logos-auto");
-  await A.waitForSelector('#modal-logos:not([hidden]) .logo-ligne[data-id="harmonie"] .logo-choix__opt img');
-  await A.waitForFunction(() => !document.querySelector("#logos-liste").textContent.includes("Recherche…")); // toutes les fiches traitées
-  assert.equal(await A.locator('#logos-liste input[type=radio]:checked:not([value=""])').count(), 1, "Seule Harmonie a un logo trouvé : 1 présélection");
-  await A.click("#logos-enregistrer");
-  await A.waitForSelector('tr[data-partner-id="harmonie"] .plogo--img img');
+  await A.waitForSelector('tr[data-partner-id="harmonie"] .plogo--auto img'); // logo.dev trouvé d'après le nom
   assert.match(await A.getAttribute('tr[data-partner-id="harmonie"] .plogo img', "src"), /^https:\/\/img\.logo\.dev\/name\/Harmonie/);
+  await A.waitForFunction(() => !document.querySelector('tr[data-partner-id="garage-martin"] .plogo img')); // logo inconnu (404) → monogramme
+  await A.goto(URL + "#/partenaires?fiche=harmonie");
+  await A.waitForSelector("#fiche-partenaire.is-open #i-logo-remove:not([hidden])");
+  await A.click("#i-logo-remove"); // « Ce n'est pas le bon logo »
+  await A.waitForFunction(() => !document.querySelector("#fiche-logo img")); // monogramme
+  await A.click("#i-logo-reset"); // « Revenir au logo automatique »
+  await A.waitForSelector("#fiche-logo .plogo--auto img");
+  await A.keyboard.press("Escape"); // le focus est resté dans la fiche : Échap la ferme
+  await A.waitForFunction(() => !document.getElementById("fiche-partenaire").classList.contains("is-open"));
 
   console.log("v2 — Logo proposé à la création d'après le nom...");
   await A.click("#btn-new-partner");

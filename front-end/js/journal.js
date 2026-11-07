@@ -36,7 +36,7 @@ const CHAMPS_DATES = new Set(["prochaineActionDate", "premierContact", "datePrev
 function valeur(champ, v) {
   if (v === null || v === undefined || v === "") return '<span class="faint">vide</span>';
   if (typeof v === "boolean") return v ? "Oui" : "Non";
-  if (champ === "logo") return String(v).startsWith("http") || String(v).startsWith("data:") ? "nouvelle image" : escapeHtml(String(v));
+  if (champ === "logo") return v === "-" ? "aucun (automatique désactivé)" : String(v).startsWith("http") || String(v).startsWith("data:") ? "nouvelle image" : escapeHtml(String(v));
   if (CHAMPS_MONTANTS.has(champ)) return formatEuro(v);
   if (CHAMPS_DATES.has(champ)) return formatDate(String(v).slice(0, 10));
   if (champ === "siret") return escapeHtml(formaterSiret(v));
