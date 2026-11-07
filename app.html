@@ -309,8 +309,6 @@
               <p class="screen__sub"><span id="partners-count">—</span></p>
             </div>
             <div class="screen__actions">
-              <!-- v2 : recherche groupée des logos manquants (logos-auto.js) -->
-              <button type="button" id="btn-logos-auto" class="btn" title="Trouver automatiquement les logos des fiches qui n'en ont pas"><svg class="icon icon--sm"><use href="#i-image"/></svg>Logos automatiques</button>
               <button type="button" id="btn-new-partner" class="btn btn--accent"><svg class="icon icon--sm"><use href="#i-plus"/></svg>Nouveau partenaire</button>
             </div>
           </div>
@@ -709,10 +707,11 @@
                 <div class="logo-field">
                   <span id="i-logo-preview"></span>
                   <button type="button" class="btn btn--small" data-action="logo-choisir"><svg class="icon icon--sm"><use href="#i-upload"/></svg><span id="i-logo-label">Importer</span></button>
-                  <button type="button" class="btn btn--small" data-action="logo-auto" id="i-logo-auto"><svg class="icon icon--sm"><use href="#i-sparkle"/></svg>Chercher automatiquement</button>
+                  <button type="button" class="btn btn--small" data-action="logo-auto" id="i-logo-auto"><svg class="icon icon--sm"><use href="#i-sparkle"/></svg>Autres logos trouvés</button>
                   <button type="button" class="btn btn--small btn--ghost" data-action="logo-retirer" id="i-logo-remove">Retirer</button>
+                  <button type="button" class="btn btn--small btn--ghost" data-action="logo-reactiver" id="i-logo-reset">Revenir au logo automatique</button>
                 </div>
-                <span class="field__hint">PNG, JPEG, WebP, GIF ou SVG · 5 Mo max · réduit automatiquement à 256 px</span>
+                <span class="field__hint" id="i-logo-hint">PNG, JPEG, WebP, GIF ou SVG · 5 Mo max · réduit automatiquement à 256 px</span>
                 <input id="f-logo-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" hidden>
               </div>
               <div class="field full"><label for="i-notes">Notes</label><textarea id="i-notes" data-table="partenaires" data-field="notes"></textarea></div>

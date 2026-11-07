@@ -8,7 +8,8 @@ import { formatEuro, formatDate, escapeHtml, showToast, stageSlug, montantAffich
 import { icon } from "./icons.js"; // affichage
 // ---- v2 ----
 import { validerSiret, formaterSiret, resteAEncaisser, PRESENCE_CONTACT, PRESENCES } from "./selectors.js"; // SIRET, reste dû, statuts de présence
-import { importerLogo, retirerLogo, logoHtml, verifierFichier } from "./logos.js"; // logos
+import { importerLogo, logoHtml, verifierFichier, logosAutomatiques, SANS_LOGO } from "./logos.js"; // logos
+import { enregistrerLogo } from "./store.js"; // v2 : « Retirer » / « Revenir au logo automatique »
 import { journalFicheHtml, surClicRestaurer } from "./journal.js"; // journal de la fiche
 import { lienAnnuaire } from "./siret.js"; // recherche du SIRET
 import { ouvrirRechercheLogos, rechercheActive } from "./logos-auto.js"; // recherche automatique du logo
@@ -146,7 +147,8 @@ async function surClic(e) {
       // ---- v2 : logo ----
       case "logo-choisir": $("f-logo-file").click(); return; // ouvre le sélecteur de fichier du système
       case "logo-auto": ouvrirRechercheLogos([v.id]); return; // propositions logo.dev pour cette fiche
-      case "logo-retirer": await retirerLogo(v.id); showToast("Logo retiré"); break; // revient au monogramme
+      case "logo-retirer": await enregistrerLogo(v.id, SANS_LOGO); showToast("Logo retiré"); renderFiche(true); $("i-logo-label").closest("button").focus(); return; // « - » : monogramme ; le focus reste dans la fiche (le bouton cliqué disparaît)
+      case "logo-reactiver": await enregistrerLogo(v.id, ""); showToast("Logo automatique réactivé"); renderFiche(true); $("i-logo-label").closest("button").focus(); return; // "" : retour au logo trouvé automatiquement
       case "add-echange": { // échange daté ajouté à la main
         const texte = $("h-text").value.trim(); // texte de l'échange
         if (!texte) { showToast("Saisissez le texte de l'échange"); return; } // obligatoire
@@ -208,9 +210,14 @@ export function renderFiche(forcer = false) {
   const logo = logoHtml(v, { taille: "lg", apercu: apercuLogo }); // aperçu local pendant l'envoi, sinon l'image enregistrée
   if ($("fiche-logo").innerHTML !== logo) $("fiche-logo").innerHTML = logo; // évite de recharger l'image à chaque rendu
   if ($("i-logo-preview").innerHTML !== logoHtml(v, { taille: "md", apercu: apercuLogo })) $("i-logo-preview").innerHTML = logoHtml(v, { taille: "md", apercu: apercuLogo });
-  $("i-logo-label").textContent = v.logo ? "Remplacer" : "Importer";
-  $("i-logo-remove").hidden = !v.logo;
+  // v2 : logo choisi (adresse), logo automatique ("" → logo.dev) ou aucun ("-")
+  const choisi = !!v.logo && v.logo !== SANS_LOGO, auto = !v.logo && logosAutomatiques(v).length > 0;
+  $("i-logo-label").textContent = choisi ? "Remplacer" : "Importer";
+  $("i-logo-remove").hidden = !(choisi || auto); // quelque chose à retirer
+  $("i-logo-remove").textContent = auto ? "Ce n'est pas le bon logo" : "Retirer";
+  $("i-logo-reset").hidden = !v.logo || !rechercheActive(); // un logo choisi ou refusé → on peut revenir à l'automatique
   $("i-logo-auto").hidden = !rechercheActive(); // pas de clé logo.dev → pas de bouton
+  $("i-logo-hint").textContent = auto ? "Logo trouvé automatiquement (logo.dev). Pas le bon ? « Ce n'est pas le bon logo », ou importez le vôtre." : v.logo === SANS_LOGO ? "Logo automatique désactivé pour cette fiche." : "PNG, JPEG, WebP, GIF ou SVG · 5 Mo max · réduit automatiquement à 256 px";
 
   renderDocuments(v); // v3 : documents de la fiche
 

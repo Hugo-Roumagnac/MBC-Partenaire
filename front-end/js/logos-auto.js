@@ -15,10 +15,10 @@
 //  4. ENREGISTREMENT (store.enregistrerLogo) : l'ADRESSE de l'image logo.dev est écrite dans partenaires.logo,
 //     exactement comme un logo importé à la main → affichage partout + temps réel + journal.
 //
-// Trois points d'entrée :
-//   • « Nouveau partenaire » : propositions sous le champ Nom, pendant la saisie (initSuggestionNouveau) ;
-//   • fiche › Informations › « Chercher automatiquement » (ouvrirRechercheLogos([id])) ;
-//   • écran Partenaires › « Logos automatiques » : toutes les fiches sans logo d'un coup (ouvrirRechercheLogos()).
+// Par DÉFAUT, aucune action n'est nécessaire : toute fiche sans logo choisi affiche directement le logo
+// automatique (voir logos.js, « LOGO AUTOMATIQUE PAR DÉFAUT »). Ce module sert à CHOISIR explicitement :
+//   • « Nouveau partenaire » : le logo trouvé s'affiche sous le champ Nom pendant la saisie (initSuggestionNouveau) ;
+//   • fiche › Informations › « Autres logos trouvés » : toutes les propositions pour une fiche (ouvrirRechercheLogos([id])).
 // =============================================================================
 import { CONFIG } from "./config.js"; // clé publique logo.dev
 import { store, enregistrerLogo } from "./store.js"; // fiches + écriture du logo
@@ -112,8 +112,6 @@ export function initLogosAuto() {
     session++; fermerModale(modal);
     showToast(ok === choix.length ? `${ok} logo${ok > 1 ? "s" : ""} enregistré${ok > 1 ? "s" : ""}` : `Échec de l'enregistrement de ${choix.length - ok} logo(s)`);
   });
-  $("btn-logos-auto")?.addEventListener("click", () => ouvrirRechercheLogos()); // écran Partenaires
-  if (!rechercheActive()) $("btn-logos-auto")?.setAttribute("hidden", ""); // pas de clé → pas de bouton
 }
 
 // ---------- « Nouveau partenaire » : propositions pendant la saisie du nom ----------
@@ -131,5 +129,12 @@ export function initSuggestionNouveau() {
     }, 600);
   });
 }
-export const logoChoisiNouveau = () => document.querySelector('input[name="np-logo-choix"]:checked')?.value || ""; // "" = aucun
+// Logo choisi à la création : l'adresse cochée ; « - » si un logo était proposé mais « Aucun » a été coché
+// (refus explicite → pas de logo automatique) ; "" si rien n'a été trouvé (logo automatique plus tard,
+// par exemple quand un contact avec un e-mail pro sera ajouté).
+export function logoChoisiNouveau() {
+  const coche = document.querySelector('input[name="np-logo-choix"]:checked');
+  if (!coche) return ""; // aucune proposition
+  return coche.value || "-"; // adresse choisie, ou refus
+}
 export function reinitialiserSuggestionNouveau() { saisie++; const z = $("np-logo"); if (z) { z.hidden = true; z.querySelector(".logo-choix").innerHTML = ""; } }

@@ -38,6 +38,24 @@
 import * as api from "./api.js"; // dépôt du fichier (Storage ou data URL)
 import { enregistrerLogo } from "./store.js"; // écriture de l'adresse dans la fiche
 import { escapeHtml, initiales } from "./utils.js"; // sécurité et initiales
+import { CONFIG } from "./config.js"; // v2 : clé publique logo.dev (logos automatiques)
+import { candidatsLogo } from "./selectors.js"; // v2 : adresses logo.dev à essayer pour une fiche
+
+// =============================================================================
+// v2 — LOGO AUTOMATIQUE PAR DÉFAUT
+// =============================================================================
+// Valeurs possibles de partenaires.logo :
+//   • une adresse (Supabase Storage, « data: » ou img.logo.dev) → ce logo, choisi par un membre ;
+//   • ""  (vide, cas par défaut) → logo AUTOMATIQUE : on affiche directement l'image logo.dev trouvée
+//         d'après l'e-mail pro des contacts puis le nom (selectors.candidatsLogo), sans aucun clic ;
+//   • "-" → « pas de logo » : un membre a refusé le logo automatique (mauvaise entreprise) → monogramme.
+// Le logo automatique n'est PAS enregistré en base : il est recalculé à l'affichage. Il suit donc
+// tout seul les changements de nom ou de contacts, et importer un logo à la main le remplace.
+export const SANS_LOGO = "-";
+const echecs = new Set(); // adresses déjà en erreur pendant cette session (404 : logo inconnu) → plus jamais réessayées
+
+// Adresses à essayer pour le logo automatique d'une fiche, dans l'ordre (sans celles déjà en échec).
+export const logosAutomatiques = (p) => (p && !p.logo ? candidatsLogo(p, CONFIG.LOGO_DEV_KEY).map((c) => c.url).filter((u) => !echecs.has(u)) : []);
 
 export const LOGO_TAILLE = 256; // côté maximal en pixels après redimensionnement (affiché au plus en 64 px : marge pour les écrans Retina)
 export const LOGO_POIDS_MAX = 5 * 1024 * 1024; // 5 Mo : au-delà on refuse le fichier d'origine
@@ -107,7 +125,7 @@ export async function importerLogo(partenaireId, fichier, { onApercu } = {}) {
 }
 
 // Retire le logo d'une fiche (l'ancien fichier est supprimé du stockage par le store).
-export const retirerLogo = (partenaireId) => enregistrerLogo(partenaireId, "");
+export const retirerLogo = (partenaireId) => enregistrerLogo(partenaireId, SANS_LOGO); // « - » : ni logo choisi, ni logo automatique
 
 // ---------- Affichage ----------
 // Teinte stable dérivée du nom : un même partenaire a toujours la même couleur de monogramme.
@@ -120,15 +138,26 @@ function teinte(texte) {
 // Gabarit HTML du logo d'un partenaire. taille : "sm" (cartes, listes) | "md" (tableau) | "lg" (fiche).
 // apercu : adresse à afficher à la place de p.logo (aperçu local pendant l'envoi).
 export function logoHtml(p, { taille = "sm", apercu = "" } = {}) {
-  const src = apercu || p?.logo || ""; // image à afficher, s'il y en a une
   const mono = `<span class="plogo__mono" style="--plogo-h:${teinte(p?.nom || "?")}" aria-hidden="true">${escapeHtml(initiales(p?.nom || "?"))}</span>`; // monogramme de secours
-  if (!src) return `<span class="plogo plogo--${taille}">${mono}</span>`; // pas de logo
-  // Le monogramme est placé SOUS l'image : si elle échoue, initLogos la retire et il réapparaît.
-  return `<span class="plogo plogo--${taille} plogo--img">${mono}<img src="${escapeHtml(src)}" alt="Logo ${escapeHtml(p?.nom || "")}" loading="lazy" decoding="async"></span>`;
+  const choisi = apercu || (p?.logo && p.logo !== SANS_LOGO ? p.logo : ""); // logo choisi par un membre
+  const auto = choisi ? [] : logosAutomatiques(p); // sinon : logos automatiques à essayer
+  const src = choisi || auto[0] || ""; // image à afficher
+  if (!src) return `<span class="plogo plogo--${taille}">${mono}</span>`; // pas de logo (ou « - ») → monogramme
+  // Le monogramme est placé SOUS l'image : si elle échoue, initLogos essaie l'adresse suivante (data-suivants),
+  // puis retire l'image → le monogramme réapparaît.
+  const suivants = auto.slice(1).join(" "); // autres candidats automatiques (adresses sans espace : encodées)
+  return `<span class="plogo plogo--${taille} plogo--img${auto.length ? " plogo--auto" : ""}">${mono}<img src="${escapeHtml(src)}" alt="Logo ${escapeHtml(p?.nom || "")}" loading="lazy" decoding="async"${suivants ? ` data-suivants="${escapeHtml(suivants)}"` : ""}></span>`;
 }
 
 // À appeler une fois au démarrage : les évènements « error » des images ne remontent pas (pas de bubbling),
 // on les capture donc au niveau du document, en phase de capture.
 export function initLogos() {
-  document.addEventListener("error", (e) => { if (e.target instanceof HTMLImageElement && e.target.closest(".plogo")) e.target.remove(); }, true);
+  document.addEventListener("error", (e) => {
+    const img = e.target;
+    if (!(img instanceof HTMLImageElement) || !img.closest(".plogo")) return; // pas un logo
+    echecs.add(img.getAttribute("src")); // mémorise l'échec (les prochains rendus ne le réessaient pas)
+    const [suivant, ...reste] = (img.dataset.suivants || "").split(" ").filter((u) => u && !echecs.has(u)); // candidat suivant
+    if (suivant) { img.dataset.suivants = reste.join(" "); img.src = suivant; } // essaie le logo automatique suivant
+    else img.remove(); // plus rien à essayer → monogramme
+  }, true);
 }
