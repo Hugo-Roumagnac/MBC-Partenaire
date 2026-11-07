@@ -105,7 +105,7 @@ npm run test:e2e
 | **Journal d'audit** (qui / quoi / quel compte) | Écran Journal, fiche › Journal des modifications | `schema.sql` §2 bis, `api.js`, `store.js` (`restaurer`), `journal.js` |
 | **Affectation des fonds** par catégorie | Tableau de bord, fiche › Affectation des fonds, Réglages | `selectors.js` (`calculerVentilation`), `dashboard.js`, `fiche.js` |
 
-**Mise à jour d'une base Supabase existante** : relancer `supabase/schema.sql` en entier dans le SQL Editor. Le script est idempotent (vérifié sur PostgreSQL 16) : il ajoute colonnes, tables, trigger et bucket sans toucher aux données.
+**Mise à jour d'une base Supabase existante** : coller `supabase/migration-v2.sql` dans le SQL Editor et cliquer sur Run (4 lignes « ok » attendues). Alternative : relancer `supabase/schema.sql` en entier, après avoir retiré les membres fictifs de la section 4. Le script est idempotent (vérifié sur PostgreSQL 16) : il ajoute colonnes, tables, trigger et bucket sans toucher aux données.
 
 **Mode démo** : les nouvelles données de démonstration (affectations) ne sont créées qu'au premier lancement. Pour les voir, videz le stockage local du site (voir §0).
 
