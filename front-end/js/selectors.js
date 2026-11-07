@@ -244,3 +244,44 @@ export function resumerAppareil(ua = "") {
   const os = /iPhone|iPad/.test(ua) ? "iOS" : /Android/.test(ua) ? "Android" : /Mac OS X|Macintosh/.test(ua) ? "macOS" : /Windows/.test(ua) ? "Windows" : /Linux/.test(ua) ? "Linux" : ""; // système
   return [nav, os].filter(Boolean).join(" · ");
 }
+
+// =============================================================================
+// v2 — LOGOS AUTOMATIQUES : candidats à partir du NOM et des E-MAILS des contacts
+// =============================================================================
+// Le service logo.dev fournit une image de logo :
+//   • à partir d'un nom d'entreprise : https://img.logo.dev/name/<nom>?token=pk_…
+//   • à partir d'un site web          : https://img.logo.dev/<domaine>?token=pk_…
+// Le site web se déduit souvent de l'e-mail professionnel d'un contact (jean@ecf82.fr → ecf82.fr).
+// Les messageries grand public (gmail.com, orange.fr…) ne disent rien de l'entreprise : on les ignore.
+export const WEBMAILS = new Set(["gmail.com", "googlemail.com", "hotmail.com", "hotmail.fr", "outlook.com", "outlook.fr", "live.com", "live.fr", "msn.com", "yahoo.com", "yahoo.fr", "icloud.com", "me.com", "mac.com", "orange.fr", "wanadoo.fr", "free.fr", "sfr.fr", "neuf.fr", "laposte.net", "bbox.fr", "aol.com", "gmx.fr", "gmx.com", "protonmail.com", "proton.me"]);
+
+// Domaine d'une adresse e-mail professionnelle, ou "" (adresse invalide ou messagerie grand public).
+export function domaineProfessionnel(email) {
+  const d = String(email || "").trim().toLowerCase().split("@")[1] || ""; // partie après @
+  return /^[a-z0-9.-]+\.[a-z]{2,}$/.test(d) && !WEBMAILS.has(d) ? d : "";
+}
+
+// Noms à essayer pour une fiche : le nom complet, puis chaque marque d'un nom composé
+// (« Acuitis - Optic 2000 » → « Acuitis », « Optic 2000 »), sans formes juridiques ni précisions entre parenthèses.
+export function nomsDeRecherche(nom) {
+  const propre = String(nom || "").replace(/\(.*?\)/g, " ").replace(/\b(sarl|sas|sasu|eurl|sa|sci|ets|etablissements)\b\.?/gi, " ").replace(/\s+/g, " ").trim(); // sans parenthèses ni forme juridique
+  const parties = propre.split(/\s[-+]\s|\s*\/\s*/).map((x) => x.trim()).filter((x) => x.length >= 3); // marques d'un nom composé (« & » fait partie du nom : « Paulette & Risette »)
+  return [...new Set([propre, ...(parties.length > 1 ? parties : [])].filter((x) => x.length >= 2))]; // sans doublon
+}
+
+// Liste ordonnée des logos possibles pour une fiche { nom, contacts } : d'abord les sites trouvés dans les
+// e-mails (les plus fiables : c'est la vraie entreprise du contact), puis la recherche par nom.
+// cle = clé publique logo.dev. Renvoie [{ url, source }] — c'est le NAVIGATEUR qui vérifie ensuite quelles
+// images existent vraiment (fallback=404 : pas de logo connu → erreur de chargement → candidat écarté).
+export function candidatsLogo({ nom, contacts = [] }, cle) {
+  if (!cle) return []; // fonctionnalité désactivée
+  const options = `token=${encodeURIComponent(cle)}&size=256&format=png&fallback=404`; // PNG transparent 256 px, 404 si inconnu
+  const domaines = [...new Set(contacts.map((c) => domaineProfessionnel(c.email)).filter(Boolean))]; // sites des contacts
+  return [
+    ...domaines.map((d) => ({ url: `https://img.logo.dev/${encodeURIComponent(d)}?${options}`, source: d })),
+    ...nomsDeRecherche(nom).map((n) => ({ url: `https://img.logo.dev/name/${encodeURIComponent(n)}?${options}`, source: `nom « ${n} »` }))
+  ];
+}
+
+// Vrai si une adresse de logo vient de la recherche automatique (pour l'affichage et la mention logo.dev).
+export const estLogoAutomatique = (url) => String(url || "").startsWith("https://img.logo.dev/");

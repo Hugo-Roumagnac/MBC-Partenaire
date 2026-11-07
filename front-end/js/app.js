@@ -20,6 +20,7 @@ import { initJournal, renderJournal } from "./journal.js"; // écran Journal (au
 import { initSiret } from "./siret.js"; // fenêtre SIRET
 import { initContacts } from "./contacts.js"; // fenêtre « Nouveau contact »
 import { initLogos } from "./logos.js"; // repli automatique sur le monogramme si une image ne charge pas
+import { initLogosAuto, initSuggestionNouveau } from "./logos-auto.js"; // recherche automatique des logos (logo.dev)
 
 injecterIcones();
 
@@ -34,7 +35,7 @@ try {
   initEnTete({ onExport: exporter });
   initInvitations();
   initDashboard(); initPipeline(); initPartenaires(); initPaiements(); initEvenements(); initFiche();
-  initJournal(); initSiret(); initContacts(); initLogos(); // v2
+  initJournal(); initSiret(); initContacts(); initLogos(); initLogosAuto(); initSuggestionNouveau(); // v2
   initActionsRapides();
   initRechercheGlobale();
   document.querySelectorAll("form[data-no-submit]").forEach((f) => f.addEventListener("submit", (e) => e.preventDefault()));

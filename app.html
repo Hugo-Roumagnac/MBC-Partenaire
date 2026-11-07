@@ -277,6 +277,8 @@
               <p class="screen__sub"><span id="partners-count">—</span></p>
             </div>
             <div class="screen__actions">
+              <!-- v2 : recherche groupée des logos manquants (logos-auto.js) -->
+              <button type="button" id="btn-logos-auto" class="btn" title="Trouver automatiquement les logos des fiches qui n'en ont pas"><svg class="icon icon--sm"><use href="#i-image"/></svg>Logos automatiques</button>
               <button type="button" id="btn-new-partner" class="btn btn--accent"><svg class="icon icon--sm"><use href="#i-plus"/></svg>Nouveau partenaire</button>
             </div>
           </div>
@@ -457,6 +459,8 @@
       </main>
 
       <footer class="app-footer">
+        <!-- v2 : mention demandée par logo.dev (offre gratuite) pour les logos trouvés automatiquement -->
+        <a href="https://logo.dev" target="_blank" rel="noopener">Logos provided by Logo.dev</a> ·
         MBC Partenaires · Données personnelles de contacts professionnels (finalité : relation partenaires, base légale : intérêt légitime) · Hébergement en Europe · Pensez à l'export Excel mensuel
       </footer>
     </div>
@@ -672,6 +676,7 @@
                 <div class="logo-field">
                   <span id="i-logo-preview"></span>
                   <button type="button" class="btn btn--small" data-action="logo-choisir"><svg class="icon icon--sm"><use href="#i-upload"/></svg><span id="i-logo-label">Importer</span></button>
+                  <button type="button" class="btn btn--small" data-action="logo-auto" id="i-logo-auto"><svg class="icon icon--sm"><use href="#i-sparkle"/></svg>Chercher automatiquement</button>
                   <button type="button" class="btn btn--small btn--ghost" data-action="logo-retirer" id="i-logo-remove">Retirer</button>
                 </div>
                 <span class="field__hint">PNG, JPEG, WebP, GIF ou SVG · 5 Mo max · réduit automatiquement à 256 px</span>
@@ -703,6 +708,8 @@
           <label for="np-nom">Nom de l'entreprise *</label>
           <input id="np-nom" name="nom" type="text" required autocomplete="off">
           <p id="np-duplicate" class="alert alert--warning" role="alert" hidden></p>
+          <!-- v2 : logo proposé automatiquement d'après le nom (logos-auto.js) — « Aucun » pour ne rien enregistrer -->
+          <div id="np-logo" class="logo-suggest" hidden><span class="field__label">Logo trouvé</span><div class="logo-choix" role="radiogroup" aria-label="Logo proposé"></div></div>
         </div>
         <div class="field"><label for="np-secteur">Secteur</label><input id="np-secteur" name="secteur" type="text"></div>
         <!-- v2 : SIRET facultatif, validé à la création -->
@@ -783,6 +790,25 @@
           <button type="submit" class="btn btn--accent">Enregistrer</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- ===== v2 — Modale : logos automatiques (une fiche ou toutes les fiches sans logo) ===== -->
+  <div id="modal-logos" class="modal" hidden>
+    <div class="modal__backdrop" data-close-modal></div>
+    <div class="modal__panel modal__panel--lg card" role="dialog" aria-modal="true" aria-labelledby="h-logos">
+      <div class="modal__head">
+        <h2 id="h-logos">Logos automatiques</h2>
+        <button type="button" class="btn btn--ghost btn--icon" data-close-modal aria-label="Fermer"><svg class="icon"><use href="#i-x"/></svg></button>
+      </div>
+      <p class="muted" id="logos-intro" style="font-size: var(--text-sm)"></p>
+      <div id="logos-liste" class="logo-liste"></div>
+      <div class="modal__foot">
+        <button type="button" class="btn btn--ghost" id="logos-aucun">Tout décocher</button>
+        <button type="button" class="btn btn--ghost" data-close-modal>Annuler</button>
+        <button type="button" class="btn btn--accent" id="logos-enregistrer" disabled>Enregistrer</button>
+      </div>
+      <p class="field__hint">Logos fournis par <a href="https://logo.dev" target="_blank" rel="noopener">Logo.dev</a></p>
     </div>
   </div>
 

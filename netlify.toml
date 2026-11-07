@@ -8,7 +8,7 @@
     X-Robots-Tag = "noindex, nofollow"            # site non référencé (§6)
     X-Content-Type-Options = "nosniff"            # pas de « sniffing » MIME
     Referrer-Policy = "same-origin"               # ne divulgue pas l'URL à des tiers
-    Content-Security-Policy = "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://cdn.sheetjs.com; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://cdn.jsdelivr.net https://cdn.sheetjs.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.supabase.co; font-src 'self'; frame-ancestors 'none'" # scripts : nous + Supabase + SheetJS ; v2 : images « blob: » (aperçu du logo) et Supabase Storage (logos)
+    Content-Security-Policy = "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://cdn.sheetjs.com; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://cdn.jsdelivr.net https://cdn.sheetjs.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.supabase.co https://img.logo.dev; font-src 'self'; frame-ancestors 'none'" # scripts : nous + Supabase + SheetJS ; v2 : images « blob: » (aperçu du logo) et Supabase Storage (logos)
 
 # Lien d'invitation reçu par e-mail : /register?token=… → register.html (réécriture, l'URL reste /register)
 [[redirects]]

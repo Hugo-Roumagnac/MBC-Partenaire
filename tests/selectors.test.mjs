@@ -2,6 +2,7 @@
 import test from "node:test"; // lanceur de tests intégré à Node
 import assert from "node:assert/strict"; // assertions strictes
 import { repartirCents, planifierEcheancier, calculerTableauDeBord, enRetard, cerfaAEmettre } from "../front-end/js/selectors.js"; // fonctions testées
+import { nomsDeRecherche, domaineProfessionnel, candidatsLogo } from "../front-end/js/selectors.js"; // v2 : logos automatiques
 import { validerSiret, formaterSiret, estSolde, colonnePipeline, resteAEncaisser, calculerRepartition, construireAFaire, resumerAppareil, PRESENCES } from "../front-end/js/selectors.js"; // v2
 import { ajouterMois } from "../front-end/js/dates.js"; // helper de dates
 import { CATALOGUE_CONTREPARTIES } from "../front-end/js/mock-seed.js"; // catalogue officiel du §3 du PDF
@@ -100,4 +101,16 @@ test("journal : résumé lisible de l'appareil", () => {
   assert.equal(resumerAppareil("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36"), "Chrome · macOS");
   assert.equal(resumerAppareil("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1"), "Safari · iOS");
   assert.equal(resumerAppareil(""), "");
+});
+
+test("logos automatiques : site tiré des e-mails pro, noms de recherche, adresses logo.dev", () => {
+  assert.equal(domaineProfessionnel("ch.puyol@ecf82.fr"), "ecf82.fr"); // e-mail d'entreprise → site
+  assert.equal(domaineProfessionnel("florian@gmail.com"), ""); // messagerie grand public : ignorée
+  assert.deepEqual(nomsDeRecherche("Acuitis - Optic 2000"), ["Acuitis - Optic 2000", "Acuitis", "Optic 2000"]); // deux marques
+  assert.deepEqual(nomsDeRecherche("Banquette & Co"), ["Banquette & Co"]); // « & » fait partie du nom
+  assert.deepEqual(nomsDeRecherche("Antocyame (Muriel)"), ["Antocyame"]); // précision entre parenthèses retirée
+  const c = candidatsLogo({ nom: "ECF", contacts: [{ email: "ch.puyol@ecf82.fr" }, { email: "x@gmail.com" }] }, "pk_test");
+  assert.deepEqual(c.map((x) => x.source), ["ecf82.fr", "nom « ECF »"]); // e-mail d'abord (plus fiable), puis le nom
+  assert.match(c[1].url, /^https:\/\/img\.logo\.dev\/name\/ECF\?token=pk_test&.*fallback=404/); // clé publique + 404 si inconnu
+  assert.deepEqual(candidatsLogo({ nom: "ECF" }, ""), []); // sans clé : désactivé
 });

@@ -160,10 +160,10 @@ export async function changerEtape(partenaireId, nouvelle) {
 }
 
 // Règle §5.4 : nouvelle fiche = cotisation demandée 200 € + « Fiche créée » dans l'historique.
-export async function creerPartenaire({ nom, secteur = "", siret = "", etape = "Prospect", type = "Sponsoring", responsable = "", montantDemande = 0, prochaineActionDate = null, prochaineActionTexte = "" }) {
+export async function creerPartenaire({ nom, secteur = "", siret = "", logo = "", etape = "Prospect", type = "Sponsoring", responsable = "", montantDemande = 0, prochaineActionDate = null, prochaineActionTexte = "" }) {
   let id = slugify(nom), n = 2; // identifiant lisible
   while (store.raw.partenaires.some((p) => p.id === id)) id = `${slugify(nom)}-${n++}`; // garantit l'unicité
-  const p = await ajouter("partenaires", { id, nom, secteur, siret, logo: "", etape, type, responsable, notes: "", prochaineActionDate, prochaineActionTexte, premierContact: aujourdhui(), modifieLe: new Date().toISOString(), modifiePar: auteur() }); // la fiche
+  const p = await ajouter("partenaires", { id, nom, secteur, siret, logo, etape, type, responsable, notes: "", prochaineActionDate, prochaineActionTexte, premierContact: aujourdhui(), modifieLe: new Date().toISOString(), modifiePar: auteur() }); // la fiche
   await ajouter("contrats", { partenaireId: p.id, saison: store.reglages.saisonEnCours, montantDemande, cotisationDemandee: COTISATION_PAR_DEFAUT, montantValide: 0, cotisationValidee: 0, dontMecenat: 0, cerfaEmis: false, natureValeur: 0, natureDescription: "", modalites: "" }); // contrat de la saison
   await noterHistorique(p.id, "Fiche créée", { auto: true }); // trace de création
   return p; // fiche créée

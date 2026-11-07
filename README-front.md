@@ -100,7 +100,7 @@ npm run test:e2e
 |---|---|---|
 | Colonne **Non encaissé** après « Signé » | Pipeline | `selectors.js` (`resteAEncaisser`, `estSolde`, `colonnePipeline`), `store.js` (`COLONNES`), `pipeline.js` |
 | **Numéro SIRET** (saisie, modification, contrôle) | Partenaires (colonne + bouton), fiche › Informations, fenêtre « Nouveau partenaire » | `selectors.js` (`validerSiret`), `siret.js`, `partenaires.js`, `fiche.js` |
-| **Logos** des sponsors | Fiche (en-tête + Informations), Pipeline, Partenaires | `logos.js`, `api.js` (`deposerLogo`), `store.js` (`enregistrerLogo`) |
+| **Logos** des sponsors (import manuel + **recherche automatique** logo.dev) | Fiche (en-tête + Informations), Pipeline, Partenaires › Logos automatiques, Nouveau partenaire | `logos.js`, `logos-auto.js`, `api.js` (`deposerLogo`), `store.js` (`enregistrerLogo`) |
 | Statut **« Contact à rajouter »** | Événements › Présences | `evenements.js`, `contacts.js` |
 | **Journal d'audit** (qui / quoi / quel compte) | Écran Journal, fiche › Journal des modifications | `schema.sql` §2 bis, `api.js`, `store.js` (`restaurer`), `journal.js` |
 | **Répartition de l'argent** (montants validés / cotisations) sous « Signé » et « Encaissé », calculée automatiquement | Tableau de bord › Score de la saison | `selectors.js` (`calculerRepartition`), `dashboard.js` |
@@ -159,6 +159,26 @@ Déposer une carte sur « Signé » ou sur « Non encaissé » la passe à l'ét
 - Bucket `logos` **en lecture publique** (un logo d'entreprise est une information publique ; l'URL contient un horodatage non devinable), **écriture réservée aux membres** (règles RLS sur `storage.objects`, `schema.sql` §3 bis). Taille max 512 Ko et types WebP/PNG/JPEG imposés côté serveur.
 - `netlify.toml` autorise `img-src blob: https://*.supabase.co` (aperçu + images du bucket).
 - Le journal d'audit ne recopie pas les images base64 du mode mock (remplacées par « (image importée) »).
+
+### 9.4 Logos automatiques (logo.dev)
+
+Trois façons de trouver un logo **sans l'importer à la main** (`logos-auto.js`) :
+
+| Où | Ce qui se passe |
+|---|---|
+| **Nouveau partenaire** | Dès qu'on tape le nom, les logos trouvés s'affichent sous le champ ; le premier est présélectionné (« Aucun » pour ne rien enregistrer). |
+| **Fiche › Informations › Chercher automatiquement** | Propositions pour cette fiche, à valider. |
+| **Partenaires › Logos automatiques** | Toutes les fiches **sans logo** d'un coup : une ligne par fiche, le premier logo trouvé présélectionné, « Tout décocher », puis « Enregistrer N logos ». |
+
+Fonctionnement pas à pas :
+1. **Candidats** (`selectors.candidatsLogo`, testé) : d'abord le **site tiré de l'e-mail professionnel** des contacts (`jean@ecf82.fr` → `ecf82.fr`, le plus fiable), puis le **nom** de l'entreprise et chaque marque d'un nom composé (« Acuitis - Optic 2000 »). Les messageries grand public (gmail.com, orange.fr…) sont ignorées.
+2. **Vérification** : le navigateur charge chaque image `https://img.logo.dev/…?token=<clé publique>&fallback=404`. Un logo inconnu répond 404 → il est écarté.
+3. **Validation par un membre** : rien n'est enregistré sans clic (deux entreprises peuvent porter le même nom).
+4. **Enregistrement** : l'adresse de l'image est écrite dans `partenaires.logo` (comme un logo importé) → affichage partout, temps réel, journal.
+
+Configuration : `CONFIG.LOGO_DEV_KEY` dans `config.js` = clé **publique** `pk_…` (faite pour être visible). Ne jamais y mettre la clé secrète `sk_…`. Clé vide = fonctionnalité masquée. `netlify.toml` autorise les images `https://img.logo.dev`. Aucune modification Supabase.
+
+Limites : les marques connues sont bien trouvées ; les commerces locaux souvent pas (import manuel). La mention « Logos provided by Logo.dev » figure en pied de page (demandée par l'offre gratuite de logo.dev).
 
 ---
 

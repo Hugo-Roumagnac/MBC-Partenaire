@@ -14,6 +14,9 @@ const URL = BASE + "app.html";
   const contexte = await navigateur.newContext({ acceptDownloads: true });
   // Initialise la session mock dans le sessionStorage avant chargement
   await contexte.addInitScript(() => sessionStorage.setItem("mbc-user", "thomas@exemple.fr"));
+  // v2 : logo.dev simulé (le test ne dépend pas d'Internet) — un logo existe pour « Harmonie… » et « Banque Test », 404 sinon
+  const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAJUlEQVR4nGP8z8DwnwEJMDEwMDCgC2BXgFUSqwJ0SawKcCsAAKnOBRV0yC8dAAAAAElFTkSuQmCC", "base64");
+  await contexte.route("https://img.logo.dev/**", (route) => /name\/(Harmonie|Banque%20Test)/i.test(route.request().url()) ? route.fulfill({ status: 200, contentType: "image/png", body: PNG }) : route.fulfill({ status: 404, body: "" }));
   // Tableau de collecte des erreurs JavaScript
   const erreurs = [];
 
@@ -26,7 +29,8 @@ const URL = BASE + "app.html";
     // Enregistre les erreurs de console (hors favicon 404)
     p.on("console", (m) => {
       // Ignore les messages non erreurs et les erreurs liées aux favicons
-      if (m.type() === "error" && !m.text().includes("favicon") && !m.location()?.url?.includes("favicon")) {
+      // (v2 : les 404 de img.logo.dev sont attendues — c'est ainsi qu'un logo inconnu est détecté)
+      if (m.type() === "error" && !m.text().includes("favicon") && !m.location()?.url?.includes("favicon") && !m.location()?.url?.includes("img.logo.dev")) {
         // Ajoute le texte d'erreur
         erreurs.push(m.text());
       }
@@ -166,6 +170,24 @@ const URL = BASE + "app.html";
     assert.equal(parts.length, 2, "Deux lignes : montants validés et cotisations");
     assert.equal(parts.reduce((t, x) => t + euros(x), 0), euros(await A.textContent(total)), `La répartition de ${total} doit retomber sur le total`);
   }
+
+  console.log("v2 — Logos automatiques : recherche groupée puis enregistrement...");
+  await A.goto(URL + "#/partenaires");
+  await A.click("#btn-logos-auto");
+  await A.waitForSelector('#modal-logos:not([hidden]) .logo-ligne[data-id="harmonie"] .logo-choix__opt img');
+  await A.waitForFunction(() => !document.querySelector("#logos-liste").textContent.includes("Recherche…")); // toutes les fiches traitées
+  assert.equal(await A.locator('#logos-liste input[type=radio]:checked:not([value=""])').count(), 1, "Seule Harmonie a un logo trouvé : 1 présélection");
+  await A.click("#logos-enregistrer");
+  await A.waitForSelector('tr[data-partner-id="harmonie"] .plogo--img img');
+  assert.match(await A.getAttribute('tr[data-partner-id="harmonie"] .plogo img', "src"), /^https:\/\/img\.logo\.dev\/name\/Harmonie/);
+
+  console.log("v2 — Logo proposé à la création d'après le nom...");
+  await A.click("#btn-new-partner");
+  await A.fill("#np-nom", "Banque Test");
+  await A.waitForSelector('#np-logo .logo-choix__opt img');
+  await A.click("#form-new-partner [type=submit]");
+  await A.waitForSelector("#fiche-partenaire.is-open #fiche-logo .plogo--img img");
+  await A.keyboard.press("Escape");
 
   console.log("v2 — Événements : « Contact à rajouter » ouvre la fiche contact...");
   await A.goto(URL + "#/evenements");

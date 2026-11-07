@@ -8,6 +8,7 @@ import { icon } from "./icons.js"; // v2 : icônes du bouton SIRET
 import { validerSiret, formaterSiret } from "./selectors.js"; // v2 : règle SIRET
 import { ouvrirSiret } from "./siret.js"; // v2 : fenêtre de saisie rapide du SIRET
 import { logoHtml } from "./logos.js"; // v2 : logo (ou monogramme) dans la liste
+import { logoChoisiNouveau, reinitialiserSuggestionNouveau } from "./logos-auto.js"; // v2 : logo trouvé d'après le nom
 
 // Filtres d'état (§4.4)
 const FILTERS = {
@@ -34,6 +35,7 @@ export function ouvrirNouveauPartenaire(nom = "") {
   remplirResponsables($("np-resp"));
   $("np-duplicate").hidden = true;
   $("np-siret-retour").textContent = ""; // v2 : efface le retour de validation précédent
+  reinitialiserSuggestionNouveau(); // v2 : efface les logos proposés pour la saisie précédente
   if (nom) form.nom.value = nom;
   ouvrirModale(modal);
 }
@@ -112,6 +114,7 @@ export function initPartenaires() {
         nom,
         secteur: form.secteur.value.trim(),
         siret: siret.siret, // v2 : normalisé (14 chiffres sans espace) ou ""
+        logo: logoChoisiNouveau(), // v2 : logo proposé et validé (ou "" si « Aucun »)
         etape: form.etape.value || "Prospect",
         type: form.type.value || "Sponsoring",
         responsable: form.responsable.value,

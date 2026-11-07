@@ -12,6 +12,7 @@ import { importerLogo, retirerLogo, logoHtml, verifierFichier } from "./logos.js
 import { journalFicheHtml, surClicRestaurer } from "./journal.js"; // journal de la fiche
 import { lienAnnuaire } from "./siret.js"; // recherche du SIRET
 import { ouvrirContactPresence } from "./evenements.js"; // « Contact à rajouter » depuis la fiche
+import { ouvrirRechercheLogos, rechercheActive } from "./logos-auto.js"; // recherche automatique du logo
 
 const $ = (id) => document.getElementById(id); // raccourci getElementById
 let idCourant = null; // id de la fiche ouverte (null = fermée)
@@ -142,6 +143,7 @@ async function surClic(e) {
       case "del-contact": await supprimer("contacts", b.dataset.id); break; // supprime le contact
       // ---- v2 : logo ----
       case "logo-choisir": $("f-logo-file").click(); return; // ouvre le sélecteur de fichier du système
+      case "logo-auto": ouvrirRechercheLogos([v.id]); return; // propositions logo.dev pour cette fiche
       case "logo-retirer": await retirerLogo(v.id); showToast("Logo retiré"); break; // revient au monogramme
       // ---- v2 : « Contact à rajouter » depuis la liste des présences de la fiche ----
       case "contact-presence": ouvrirContactPresence(b.dataset.id); return;
@@ -207,6 +209,7 @@ export function renderFiche(forcer = false) {
   if ($("i-logo-preview").innerHTML !== logoHtml(v, { taille: "md", apercu: apercuLogo })) $("i-logo-preview").innerHTML = logoHtml(v, { taille: "md", apercu: apercuLogo });
   $("i-logo-label").textContent = v.logo ? "Remplacer" : "Importer";
   $("i-logo-remove").hidden = !v.logo;
+  $("i-logo-auto").hidden = !rechercheActive(); // pas de clé logo.dev → pas de bouton
 
   // ---- v2 : SIRET (aide à la recherche + état de validation) ----
   $("i-siret-annuaire").href = lienAnnuaire(v.nom);
