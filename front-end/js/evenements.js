@@ -4,7 +4,7 @@ import { ficheHref } from "./router.js";
 import { formatDate, escapeHtml, showToast, slugify } from "./utils.js";
 import { aujourdhui } from "./dates.js";
 import { ouvrirModale, fermerModale } from "./modal.js";
-import { PRESENCES, PRESENCE_CONTACT } from "./selectors.js"; // « Oui », « En attente », « Non », « Contacter » (v3)
+import { PRESENCES, PRESENCE_CONTACT, PRESENCE_ATTENTE } from "./selectors.js"; // v4 : « Oui », « Contacté en attente », « Non »
 import { ouvrirNouveauContact } from "./contacts.js"; // v2 : fenêtre « Nouveau contact »
 import { icon } from "./icons.js"; // v2 : icône du bouton « Ajouter le contact »
 
@@ -108,7 +108,7 @@ export function initEvenements() {
   });
 }
 
-const inviter = (evenementId, ids) => Promise.all(ids.map((partenaireId) => ajouter("presences", { evenementId, partenaireId, presence: "En attente", personnes: 0, noms: "" })));
+const inviter = (evenementId, ids) => Promise.all(ids.map((partenaireId) => ajouter("presences", { evenementId, partenaireId, presence: PRESENCE_ATTENTE, personnes: 0, noms: "" })));
 
 function uniqueEventId(base) {
   let id = `evt-${base}`, n = 2;
@@ -132,7 +132,7 @@ function selectedEvent() {
 function stats(evt) {
   const p = evt.presences || [];
   const oui = p.filter((x) => x.presence === "Oui");
-  return { invites: p.length, entreprises: oui.length, personnes: oui.reduce((s, x) => s + (Number(x.personnes) || 0), 0), attente: p.filter((x) => x.presence === "En attente").length, contacts: p.filter((x) => x.presence === PRESENCE_CONTACT).length }; // v3 : partenaires à contacter
+  return { invites: p.length, entreprises: oui.length, personnes: oui.reduce((s, x) => s + (Number(x.personnes) || 0), 0), attente: p.filter((x) => x.presence === PRESENCE_ATTENTE).length, contacts: p.filter((x) => x.presence === PRESENCE_CONTACT).length }; // v3 : partenaires à contacter
 }
 
 const MOIS = ["janv", "févr", "mars", "avr", "mai", "juin", "juil", "août", "sept", "oct", "nov", "déc"];
@@ -185,7 +185,7 @@ function renderAttendance(evt) {
   tbody.innerHTML = rows.map((row) => {
     const p = getPartner(row.partenaireId);
     const name = p ? p.nom : "(fiche supprimée)";
-    const ton = row.presence === "Oui" ? "success" : row.presence === "Non" ? "danger" : row.presence === PRESENCE_CONTACT ? "info" : "warning"; // bleu pour « Contacter »
+    const ton = row.presence === "Oui" ? "success" : row.presence === "Non" ? "danger" : "warning"; // v4 : orange pour « Contacté en attente »
     return `
       <tr data-presence-id="${escapeHtml(row.id)}">
         <td class="td--main">${p ? `<a class="link-fiche" href="${ficheHref(p.id)}">${escapeHtml(name)}</a>` : escapeHtml(name)} <span class="badge badge--${ton}" style="margin-left:4px">${escapeHtml(row.presence)}</span>${row.presence === PRESENCE_CONTACT && p ? ` <button type="button" class="btn btn--small btn--ghost" data-contact-presence="${escapeHtml(row.id)}">${icon("plus", "icon--sm")}Ajouter le contact</button>` : ""}</td>

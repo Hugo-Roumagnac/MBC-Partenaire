@@ -27,7 +27,7 @@ function reconstruire() {
   store.reglages = { ...store.reglages, ...(raw.reglages[0] || {}) }; // réglages (une seule ligne)
   const { saisonEnCours: N, saisonPrecedente: P } = store.reglages; // saison courante et précédente
   const grouper = (lignes) => { const m = new Map(); for (const l of lignes) { (m.get(l.partenaireId) || m.set(l.partenaireId, []).get(l.partenaireId)).push(l); } return m; }; // regroupe par partenaire
-  raw.presences.forEach((x) => { x.presence = normaliserPresence(x.presence); }); // v3 : « Contact à rajouter » (ancienne valeur) → « Contacter »
+  raw.presences.forEach((x) => { x.presence = normaliserPresence(x.presence); }); // v4 : « En attente », « Contacter », « Contact à rajouter » → « Contacté en attente »
   const documents = grouper(raw.documents || []); // v3 : documents par partenaire
   const contrats = grouper(raw.contrats), echeances = grouper(raw.echeances.filter((e) => e.saison === N)), cps = grouper(raw.contreparties.filter((c) => c.saison === N)), contacts = grouper(raw.contacts), echanges = grouper(raw.echanges); // index par partenaire
 

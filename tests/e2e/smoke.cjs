@@ -193,21 +193,16 @@ const URL = BASE + "app.html";
   await A.waitForSelector("#fiche-partenaire.is-open #fiche-logo .plogo--img img");
   await A.keyboard.press("Escape");
 
-  console.log("v3 — Événements : « Contacter » est enregistré et remonte sur la fiche et le pipeline...");
+  console.log("v4 — Événements : « Contacté en attente » remplace « En attente » et « Contacter »...");
   await A.goto(URL + "#/evenements");
   const ligne = A.locator("#attendance-tbody tr[data-presence-id]").first();
   const presenceId = await ligne.getAttribute("data-presence-id");
-  await ligne.locator("[data-field=presence]").selectOption("Contacter");
-  await A.waitForFunction((id) => JSON.parse(localStorage.getItem("mbc:presences")).find((x) => x.id === id)?.presence === "Contacter", presenceId); // enregistré tout de suite
-  assert.equal(await A.locator("#modal-contact:not([hidden])").count(), 0, "« Contacter » ne doit plus ouvrir la fenêtre contact d'office");
-  await B.goto(URL + "#/pipeline");
-  await B.waitForSelector("#kanban .pcard .badge--contacter"); // l'autre membre voit le badge sans recharger
-  await A.goto(URL + "#/evenements");
-  await A.locator(`#attendance-tbody tr[data-presence-id="${presenceId}"] [data-contact-presence]`).click(); // ajout de contact facultatif
-  await A.waitForSelector("#modal-contact:not([hidden])");
-  await A.fill("#ct-nom", "Contact E2E");
-  await A.click("#form-contact [type=submit]");
-  await A.waitForFunction(() => document.getElementById("modal-contact").hidden);
+  const choix = await ligne.locator("[data-field=presence] option").allTextContents();
+  assert.deepEqual(choix, ["Oui", "Contacté en attente", "Non"], "trois choix seulement");
+  await ligne.locator("[data-field=presence]").selectOption("Oui");
+  await ligne.locator("[data-field=presence]").selectOption("Contacté en attente");
+  await A.waitForFunction((id) => JSON.parse(localStorage.getItem("mbc:presences")).find((x) => x.id === id)?.presence === "Contacté en attente", presenceId); // enregistré tout de suite
+  assert.match(await A.textContent("#event-stats"), /En attente de réponse/);
 
   console.log("v3 — Documents : dépôt d'une convention et d'un autre document...");
   await A.goto(URL + "#/partenaires?fiche=entreprise-test-e2e");
@@ -239,7 +234,7 @@ const URL = BASE + "app.html";
   await A.goto(URL + "#/journal");
   await A.waitForSelector("#journal-liste tr");
   assert.match(await A.textContent("#journal-liste"), /thomas@exemple\.fr/, "Le compte auteur doit apparaître");
-  assert.match(await A.textContent("#journal-liste"), /Contact E2E/, "La création du contact doit être tracée");
+  assert.match(await A.textContent("#journal-liste"), /Contacté en attente/, "Le changement de présence doit être tracé"); // v4
   await A.goto(URL + "#/partenaires?fiche=entreprise-test-e2e");
   await A.waitForSelector("#fiche-partenaire.is-open");
   await A.locator("summary", { hasText: "Journal des modifications" }).click();
