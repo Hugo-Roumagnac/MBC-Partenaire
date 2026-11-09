@@ -134,7 +134,7 @@ create table if not exists public.presences (
   id            uuid primary key default gen_random_uuid(),
   evenement_id  text not null references public.evenements(id) on delete cascade,
   partenaire_id text not null references public.partenaires(id) on delete cascade,
-  presence      text not null default 'En attente' check (presence in ('Oui','En attente','Non','Contacter')), -- v3 : « Contacter » = un contact est à établir
+  presence      text not null default 'Contacté en attente' check (presence in ('Oui','Contacté en attente','Non')), -- v4 : « En attente » + « Contacter » fusionnés
   personnes     integer not null default 0 check (personnes >= 0),
   noms          text not null default '',
   cree_le       timestamptz not null default now(),
@@ -179,8 +179,9 @@ alter table public.partenaires add column if not exists logo  text not null defa
 alter table public.partenaires drop constraint if exists partenaires_siret_check;
 alter table public.partenaires add  constraint partenaires_siret_check check (siret = '' or siret ~ '^[0-9]{14}$');
 alter table public.presences   drop constraint if exists presences_presence_check;
-update public.presences set presence = 'Contacter' where presence = 'Contact à rajouter'; -- v3
-alter table public.presences   add  constraint presences_presence_check check (presence in ('Oui','En attente','Non','Contacter'));
+update public.presences set presence = 'Contacté en attente' where presence in ('En attente','Contacter','Contact à rajouter'); -- v4
+alter table public.presences   alter column presence set default 'Contacté en attente'; -- v4
+alter table public.presences   add  constraint presences_presence_check check (presence in ('Oui','Contacté en attente','Non'));
 
 -- Index sur les clés étrangères (performance)
 create index if not exists contrats_partenaire_idx      on public.contrats (partenaire_id);

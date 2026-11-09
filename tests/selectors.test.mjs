@@ -90,24 +90,13 @@ test("répartition sous Signé / Encaissé : montants validés et total des coti
   assert.equal(r.encaisse.montants + r.encaisse.cotisations, 700 + 1350 + 300); // retombe exactement sur l'encaissé total
 });
 
-test("événements : « Contacter » remplace « Contact à rajouter » et alimente « À faire »", () => {
-  assert.equal(PRESENCES.includes("Contacter"), true); // nouvelle valeur
-  assert.equal(PRESENCES.includes("Contact à rajouter"), false); // ancienne valeur retirée de la liste
-  assert.equal(normaliserPresence("Contact à rajouter"), "Contacter"); // l'ancienne valeur est lue sous le nouveau nom
+test("événements v4 : « En attente » et « Contacter » fusionnés en « Contacté en attente »", () => {
+  assert.deepEqual(PRESENCES, ["Oui", "Contacté en attente", "Non"]); // trois choix seulement
+  for (const ancien of ["En attente", "Contacter", "Contact à rajouter"]) assert.equal(normaliserPresence(ancien), "Contacté en attente"); // anciennes valeurs lues sous le nouveau nom
+  assert.equal(normaliserPresence("Oui"), "Oui");
   const evts = [{ id: "e1", nom: "Afterwork", date: "2026-11-20", presences: [{ id: "p1", partenaireId: "x", presence: "Contacter", noms: "Jean D." }, { id: "p2", partenaireId: "x", presence: "Oui" }] }];
-  const todo = construireAFaire([vue({})], [], "2026-11-07", evts);
-  assert.equal(todo.length, 1); // une seule ligne : le « Oui » n'en crée pas
-  assert.match(todo[0].titre, /À contacter/);
-});
-
-test("« Contacter » est repris sur chaque fiche (badge pipeline / fiche)", () => {
-  const evts = [
-    { id: "e1", nom: "Afterwork", date: "2026-10-01", presences: [{ id: "p1", partenaireId: "x", presence: "Contacter" }] },
-    { id: "e2", nom: "Match", date: "2026-11-15", presences: [{ id: "p2", partenaireId: "x", presence: "Contact à rajouter" }, { id: "p3", partenaireId: "y", presence: "Non" }] }
-  ];
-  const m = aContacterParPartenaire(evts);
-  assert.deepEqual(m.get("x").map((l) => l.evenementNom), ["Match", "Afterwork"]); // le plus récent d'abord, ancienne valeur comprise
-  assert.equal(m.has("y"), false); // « Non » : rien à faire
+  assert.equal(construireAFaire([vue({})], [], "2026-11-07", evts).length, 0); // plus de ligne « À contacter »
+  assert.equal(aContacterParPartenaire(evts).size, 0); // plus de badge « À contacter »
 });
 
 test("budget : total global = montants validés + cotisations validées, ventilation exacte", () => {

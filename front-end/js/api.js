@@ -1,6 +1,7 @@
 // api.js — UNIQUE point d'accès aux données. Même interface en mode "supabase" et en mode "mock".
 import { CONFIG } from "./config.js"; // mode et identifiants
 import { seedTables } from "./mock-seed.js"; // données de départ du mode mock
+import { normaliserPresence } from "./selectors.js"; // v4 : statuts de présence fusionnés
 import { genererJeton, empreinte, normaliserEmail, emailValide, jetonPlausible, DUREE_INVITATION_HEURES } from "./invitations-core.js"; // invitations
 
 export const TABLES = ["partenaires", "contrats", "echeances", "contreparties", "contacts", "echanges", "evenements", "presences", "reglages", "membres", "journal", "documents"]; // toutes les tables lues (v2 : + journal ; v3 : + documents)
@@ -18,7 +19,7 @@ const pk = (table) => (table === "membres" ? "email" : "id"); // clé primaire d
 // pour que le front (restauration, affichage) manipule partout les mêmes noms de champs.
 function normaliser(table, ligne) {
   const l = mapKeys(ligne, toCamel); // colonnes de premier niveau
-  if (table === "presences" && l.presence === "Contact à rajouter") l.presence = "Contacter"; // v3 : ancienne valeur (avant migration-v3.sql) lue sous son nouveau nom
+  if (table === "presences") l.presence = normaliserPresence(l.presence); // v4 : « En attente » / « Contacter » lus comme « Contacté en attente »
   if (table !== "journal") return l; // cas général
   if (l.avant) l.avant = mapKeys(l.avant, toCamel); // anciennes valeurs
   if (l.apres) l.apres = mapKeys(l.apres, toCamel); // nouvelles valeurs

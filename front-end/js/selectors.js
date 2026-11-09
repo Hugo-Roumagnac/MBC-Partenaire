@@ -9,10 +9,16 @@ export const COTISATION_PAR_DEFAUT = 200; // §5 règle 4 : cotisation demandée
 // Le statut est enregistré dès qu'il est choisi et remonte partout (pipeline, liste et fiche partenaire,
 // « À faire » du tableau de bord). L'ancienne valeur, encore présente tant que supabase/migration-v3.sql
 // n'a pas été lancé (ou dans un navigateur en mode démo), est lue comme « Contacter ».
-export const PRESENCE_CONTACT = "Contacter";
+// v4 : « En attente » et « Contacter » sont fusionnés en un seul statut, « Contacté en attente ».
+// Les anciennes valeurs (« En attente », « Contacter », « Contact à rajouter ») sont lues sous ce nouveau nom,
+// tant que supabase/migration-v4-finalisation.sql n'a pas converti les lignes en base.
+// « Contacter » n'est plus proposé : le badge « À contacter » et la ligne « À faire » associée ne s'affichent plus.
+export const PRESENCE_ATTENTE = "Contacté en attente";
+export const PRESENCE_CONTACT = "Contacter"; // v3, plus proposé (gardé pour la lecture des anciennes données)
 export const PRESENCE_CONTACT_ANCIEN = "Contact à rajouter";
-export const PRESENCES = ["Oui", "En attente", "Non", PRESENCE_CONTACT];
-export const normaliserPresence = (p) => (p === PRESENCE_CONTACT_ANCIEN ? PRESENCE_CONTACT : p);
+const PRESENCES_FUSIONNEES = ["En attente", PRESENCE_CONTACT, PRESENCE_CONTACT_ANCIEN]; // v4 : toutes lues comme PRESENCE_ATTENTE
+export const PRESENCES = ["Oui", PRESENCE_ATTENTE, "Non"];
+export const normaliserPresence = (p) => (PRESENCES_FUSIONNEES.includes(p) ? PRESENCE_ATTENTE : p);
 
 // v3 : événements pour lesquels chaque partenaire est « à contacter ».
 // → Map partenaireId → [{ presenceId, evenementId, evenementNom, date, noms }], le plus récent d'abord.

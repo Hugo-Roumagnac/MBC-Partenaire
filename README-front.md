@@ -272,3 +272,11 @@ Exemple : AXA a validé **500 €** + **200 €** de cotisation et a tout payé 
 
 - `npm test` : tests unitaires (dont SIRET/Luhn, colonne Non encaissé et reste dû, répartition montants validés / cotisations (exemple AXA), « Contacter » dans À faire et sur les fiches, total global et ventilation du budget, résumé de l'appareil).
 - `npm run test:e2e` : parcours navigateur complet, étendu en v2 (colonnes Signé / Non encaissé, SIRET refusé puis accepté, import de logo visible dans l'autre onglet, répartition égale au total Encaissé, journal et restauration d'une valeur) puis en v3 (« Contacter » enregistré et visible dans l'autre onglet, dépôt / téléchargement / suppression de documents, format refusé, total global = somme des sous-totaux).
+
+## 11. Événements : statut « Contacté en attente » (v4)
+
+« En attente » et « Contacter » sont fusionnés en un seul statut, **« Contacté en attente »**. La liste Présence propose désormais **Oui / Contacté en attente / Non**. Les nouveaux invités prennent ce statut par défaut, et il alimente le compteur « En attente de réponse ». Le badge « À contacter » et le filtre associé sont retirés.
+
+1. **Avant** de déployer la v4 (même sur la branche de test) : lancer `supabase/migration-v4.sql` (1 ligne « ok »). Compatible avec l'ancien site : les anciennes valeurs restent acceptées.
+2. Le site v4 lit déjà « En attente », « Contacter » et « Contact à rajouter » comme « Contacté en attente ».
+3. **Une fois la v4 en production** : lancer `supabase/migration-v4-finalisation.sql` pour convertir les anciennes lignes en base.
