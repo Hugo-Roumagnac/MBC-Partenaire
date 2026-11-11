@@ -4,7 +4,7 @@ import { ficheHref } from "./router.js";
 import { formatDate, escapeHtml, showToast, slugify } from "./utils.js";
 import { aujourdhui } from "./dates.js";
 import { ouvrirModale, fermerModale } from "./modal.js";
-import { PRESENCES, PRESENCE_CONTACT, PRESENCE_ATTENTE } from "./selectors.js"; // v4 : « Oui », « Contacté en attente », « Non »
+import { PRESENCES, PRESENCE_CONTACT, PRESENCE_ATTENTE } from "./selectors.js"; // v5 : « À contacter », « Contacté en attente », « Oui », « Non »
 import { ouvrirNouveauContact } from "./contacts.js"; // v2 : fenêtre « Nouveau contact »
 import { icon } from "./icons.js"; // v2 : icône du bouton « Ajouter le contact »
 
@@ -96,7 +96,7 @@ export function initEvenements() {
       const row = store.raw.presences.find((x) => x.id === id);
       if (row && !(Number(row.personnes) > 0)) patch.personnes = 1;
     }
-    try { await ecrire("presences", id, patch); showToast(champ === "presence" && valeur === PRESENCE_CONTACT ? "Statut « Contacter » enregistré : visible sur la fiche et dans le pipeline" : "Présence enregistrée"); } // v3 : sauvegarde immédiate
+    try { await ecrire("presences", id, patch); showToast(champ === "presence" && valeur === PRESENCE_CONTACT ? "Statut « À contacter » enregistré : visible sur la fiche et dans le pipeline" : "Présence enregistrée"); } // v3 : sauvegarde immédiate
     catch (err) { console.error(err); showToast("Échec de l'enregistrement", { erreur: true }); }
   });
   tbody?.addEventListener("click", async (e) => {
@@ -185,7 +185,7 @@ function renderAttendance(evt) {
   tbody.innerHTML = rows.map((row) => {
     const p = getPartner(row.partenaireId);
     const name = p ? p.nom : "(fiche supprimée)";
-    const ton = row.presence === "Oui" ? "success" : row.presence === "Non" ? "danger" : "warning"; // v4 : orange pour « Contacté en attente »
+    const ton = row.presence === "Oui" ? "success" : row.presence === "Non" ? "danger" : row.presence === PRESENCE_CONTACT ? "info" : "warning"; // v5 : bleu « À contacter », orange « Contacté en attente »
     return `
       <tr data-presence-id="${escapeHtml(row.id)}">
         <td class="td--main">${p ? `<a class="link-fiche" href="${ficheHref(p.id)}">${escapeHtml(name)}</a>` : escapeHtml(name)} <span class="badge badge--${ton}" style="margin-left:4px">${escapeHtml(row.presence)}</span>${row.presence === PRESENCE_CONTACT && p ? ` <button type="button" class="btn btn--small btn--ghost" data-contact-presence="${escapeHtml(row.id)}">${icon("plus", "icon--sm")}Ajouter le contact</button>` : ""}</td>

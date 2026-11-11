@@ -271,7 +271,7 @@ export function renderFiche(forcer = false) {
   // v3 : le statut se modifie aussi depuis la fiche ; la liste porte data-table/data-id/data-field, donc
   // surChangement l'enregistre immédiatement comme n'importe quel champ (et le temps réel le diffuse).
   majListe($("fiche-attendance"), presences.map(({ evt, p }) => {
-    const ton = p.presence === "Oui" ? "success" : p.presence === "Non" ? "danger" : "warning"; // v4 : « Contacté en attente »
+    const ton = p.presence === "Oui" ? "success" : p.presence === "Non" ? "danger" : p.presence === PRESENCE_CONTACT ? "info" : "warning"; // v5
     return `<li class="cp-item attendance-item attendance-item--${ton}"><span style="flex:1; font-size: var(--text-sm)"><strong>${escapeHtml(evt.nom)}</strong> <span class="muted">· ${formatDate(evt.date)}${p.presence === "Oui" ? ` · ${Number(p.personnes) || 0} pers.` : ""}</span></span>
       <select class="input--sm attendance-item__select" ${attrs("presences", p.id, "presence")} aria-label="Présence à ${escapeHtml(evt.nom)}">${PRESENCES.map((x) => `<option ${x === p.presence ? "selected" : ""}>${x}</option>`).join("")}</select></li>`;
   }).join("") || '<li class="faint" style="font-size: var(--text-sm)">Aucune invitation pour l\'instant.</li>', forcer);

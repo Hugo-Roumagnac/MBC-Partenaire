@@ -193,12 +193,12 @@ const URL = BASE + "app.html";
   await A.waitForSelector("#fiche-partenaire.is-open #fiche-logo .plogo--img img");
   await A.keyboard.press("Escape");
 
-  console.log("v4 — Événements : « Contacté en attente » remplace « En attente » et « Contacter »...");
+  console.log("v5 — Événements : « À contacter », « Contacté en attente », « Oui », « Non »...");
   await A.goto(URL + "#/evenements");
   const ligne = A.locator("#attendance-tbody tr[data-presence-id]").first();
   const presenceId = await ligne.getAttribute("data-presence-id");
   const choix = await ligne.locator("[data-field=presence] option").allTextContents();
-  assert.deepEqual(choix, ["Oui", "Contacté en attente", "Non"], "trois choix seulement");
+  assert.deepEqual(choix, ["À contacter", "Contacté en attente", "Oui", "Non"], "quatre choix");
   await ligne.locator("[data-field=presence]").selectOption("Oui");
   await ligne.locator("[data-field=presence]").selectOption("Contacté en attente");
   await A.waitForFunction((id) => JSON.parse(localStorage.getItem("mbc:presences")).find((x) => x.id === id)?.presence === "Contacté en attente", presenceId); // enregistré tout de suite

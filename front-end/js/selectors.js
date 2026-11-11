@@ -12,13 +12,15 @@ export const COTISATION_PAR_DEFAUT = 200; // §5 règle 4 : cotisation demandée
 // v4 : « En attente » et « Contacter » sont fusionnés en un seul statut, « Contacté en attente ».
 // Les anciennes valeurs (« En attente », « Contacter », « Contact à rajouter ») sont lues sous ce nouveau nom,
 // tant que supabase/migration-v4-finalisation.sql n'a pas converti les lignes en base.
-// « Contacter » n'est plus proposé : le badge « À contacter » et la ligne « À faire » associée ne s'affichent plus.
+// v5 : quatre statuts — « À contacter », « Contacté en attente », « Oui », « Non ».
+// « À contacter » réactive le badge « À contacter » (pipeline, liste, fiche) et la ligne « À faire » du tableau de bord.
+// Anciennes valeurs lues sous le nouveau nom tant que supabase/migration-v5.sql n'a pas converti la base :
+// « Contacter » et « Contact à rajouter » → « À contacter » ; « En attente » → « Contacté en attente ».
 export const PRESENCE_ATTENTE = "Contacté en attente";
-export const PRESENCE_CONTACT = "Contacter"; // v3, plus proposé (gardé pour la lecture des anciennes données)
-export const PRESENCE_CONTACT_ANCIEN = "Contact à rajouter";
-const PRESENCES_FUSIONNEES = ["En attente", PRESENCE_CONTACT, PRESENCE_CONTACT_ANCIEN]; // v4 : toutes lues comme PRESENCE_ATTENTE
-export const PRESENCES = ["Oui", PRESENCE_ATTENTE, "Non"];
-export const normaliserPresence = (p) => (PRESENCES_FUSIONNEES.includes(p) ? PRESENCE_ATTENTE : p);
+export const PRESENCE_CONTACT = "À contacter"; // v5
+const ANCIENNES_PRESENCES = { "Contacter": PRESENCE_CONTACT, "Contact à rajouter": PRESENCE_CONTACT, "En attente": PRESENCE_ATTENTE };
+export const PRESENCES = [PRESENCE_CONTACT, PRESENCE_ATTENTE, "Oui", "Non"];
+export const normaliserPresence = (p) => ANCIENNES_PRESENCES[p] || p;
 
 // v3 : événements pour lesquels chaque partenaire est « à contacter ».
 // → Map partenaireId → [{ presenceId, evenementId, evenementNom, date, noms }], le plus récent d'abord.

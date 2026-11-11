@@ -90,13 +90,14 @@ test("répartition sous Signé / Encaissé : montants validés et total des coti
   assert.equal(r.encaisse.montants + r.encaisse.cotisations, 700 + 1350 + 300); // retombe exactement sur l'encaissé total
 });
 
-test("événements v4 : « En attente » et « Contacter » fusionnés en « Contacté en attente »", () => {
-  assert.deepEqual(PRESENCES, ["Oui", "Contacté en attente", "Non"]); // trois choix seulement
-  for (const ancien of ["En attente", "Contacter", "Contact à rajouter"]) assert.equal(normaliserPresence(ancien), "Contacté en attente"); // anciennes valeurs lues sous le nouveau nom
+test("événements v5 : « À contacter », « Contacté en attente », « Oui », « Non »", () => {
+  assert.deepEqual(PRESENCES, ["À contacter", "Contacté en attente", "Oui", "Non"]); // quatre choix
+  for (const ancien of ["Contacter", "Contact à rajouter"]) assert.equal(normaliserPresence(ancien), "À contacter");
+  assert.equal(normaliserPresence("En attente"), "Contacté en attente");
   assert.equal(normaliserPresence("Oui"), "Oui");
-  const evts = [{ id: "e1", nom: "Afterwork", date: "2026-11-20", presences: [{ id: "p1", partenaireId: "x", presence: "Contacter", noms: "Jean D." }, { id: "p2", partenaireId: "x", presence: "Oui" }] }];
-  assert.equal(construireAFaire([vue({})], [], "2026-11-07", evts).length, 0); // plus de ligne « À contacter »
-  assert.equal(aContacterParPartenaire(evts).size, 0); // plus de badge « À contacter »
+  const evts = [{ id: "e1", nom: "Afterwork", date: "2026-11-20", presences: [{ id: "p1", partenaireId: "x", presence: "À contacter", noms: "Jean D." }, { id: "p2", partenaireId: "x", presence: "Oui" }] }];
+  assert.equal(construireAFaire([vue({})], [], "2026-11-07", evts).filter((i) => i.badge === "Contacter").length, 1); // ligne « À contacter » dans « À faire »
+  assert.equal(aContacterParPartenaire(evts).get("x").length, 1); // badge « À contacter »
 });
 
 test("budget : total global = montants validés + cotisations validées, ventilation exacte", () => {
