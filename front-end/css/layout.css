@@ -222,6 +222,14 @@ body[data-screen="journal"] #screen-journal { display: block; } /* v2 : écran J
 @keyframes boot { 0% { transform: translateX(-100%); } 100% { transform: translateX(260%); } }
 body.is-ready .boot { display: none; }
 .boot--error .boot__bar { display: none; }
+/* Ballon de points animé (boule-chargement.js), à la couleur d'accent ; le logo ne revient qu'en cas d'erreur */
+.boot__ball { display: block; width: 96px; height: 96px; color: var(--color-accent); --boot-ombre: var(--color-text); }
+.boot .logo-mark { display: none; }
+.boot--error .boot__ball { display: none; }
+.boot--error .logo-mark { display: grid; }
+/* En sombre, un orange un peu plus clair pour que le ballon ressorte sur le fond */
+:root[data-theme="dark"] .boot__ball { color: #e07a35; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .boot__ball { color: #e07a35; } }
 
 /* ====================== PAGE DE CONNEXION (§4.1) ====================== */
 .login { min-height: 100vh; min-height: 100dvh; display: grid; grid-template-columns: 1fr; background: var(--color-surface); }
