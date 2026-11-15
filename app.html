@@ -159,16 +159,16 @@
                   <span class="budget__sub" id="budget-montants-sub"></span>
                   <span class="budget__bar" aria-hidden="true"><span id="budget-montants-bar" style="--value: 0"></span></span>
                 </div>
+                <div class="budget__tile budget__tile--encaisse">
+                  <span class="budget__label">Encaissé</span>
+                  <span class="score__value-row"><span class="budget__value" id="score-cashed">—</span><span class="score__spark" id="spark-encaisse"></span></span>
+                  <span class="score__split" id="score-cashed-split"></span>
+                </div>
                 <div class="budget__tile budget__tile--cotisations">
                   <span class="budget__label">Total cotisations validées</span>
                   <span class="budget__value" id="budget-cotisations">—</span>
                   <span class="budget__sub" id="budget-cotisations-sub"></span>
                   <span class="budget__bar" aria-hidden="true"><span id="budget-cotisations-bar" style="--value: 0"></span></span>
-                </div>
-                <div class="budget__tile budget__tile--mecenat">
-                  <span class="budget__label">Total mécénat</span>
-                  <span class="budget__value" id="budget-mecenat">—</span>
-                  <span class="budget__sub" id="budget-mecenat-sub">Inclus dans les montants validés</span>
                 </div>
                 <div class="budget__tile budget__tile--nature">
                   <span class="budget__label">Total apports en nature</span>
@@ -180,11 +180,11 @@
 
             <div class="score__figures">
               <div class="score__fig score__fig--success kpi"><span class="kpi__label">Dont fiches « Signé »</span><span class="score__value-row"><span id="score-signed" class="kpi__value">—</span><span class="score__spark" id="spark-signe"></span></span><span class="kpi__sub" id="spark-signe-sub"></span><span class="score__split" id="score-signed-split"></span></div>
-              <div class="score__fig kpi"><span class="kpi__label">Encaissé</span><span class="score__value-row"><span id="score-cashed" class="kpi__value">—</span><span class="score__spark" id="spark-encaisse"></span></span><span class="score__split" id="score-cashed-split"></span></div>
+              <div class="score__fig kpi"><span class="kpi__label">Total mécénat</span><span id="budget-mecenat" class="kpi__value">—</span><span class="kpi__sub" id="budget-mecenat-sub">Inclus dans les montants validés</span></div>
               <div class="score__fig score__fig--info kpi"><span class="kpi__label">En négociation</span><span id="score-negotiation" class="kpi__value">—</span></div>
               <div class="score__fig kpi"><span class="kpi__label">Reste à trouver</span><span id="score-remaining" class="kpi__value">—</span></div>
             </div>
-            <!-- v2 : sous « Encaissé », répartition montants validés / cotisations (dashboard.renderRepartition) -->
+            <!-- « Encaissé » est dans la répartition du budget (2e case), « Total mécénat » ici à sa place -->
           </article>
 
           <!-- ---- 4 indicateurs (v6 : un seul bandeau séparé par des filets) ---- -->
