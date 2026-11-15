@@ -459,3 +459,6 @@ body[data-screen="reglages"] #screen-reglages { display: block; }
   #payments-list .table th:nth-child(6) { width: 18%; }
   #payments-list .table td { overflow: hidden; text-overflow: ellipsis; }
 }
+/* Bas de la barre latérale : une adresse e-mail longue est coupée (…) au lieu d'élargir la barre */
+.sidebar__footer { grid-template-columns: minmax(0, 1fr); }
+.user-chip, .user-chip__text { min-width: 0; }
