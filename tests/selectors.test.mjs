@@ -190,6 +190,10 @@ test("v6 — échéancier de la saison : prévu / encaissé / retard / à venir 
   assert.equal(r.mois.reduce((t, m) => t + m.prevu, 0), 235.5); // l'échéance d'une autre saison est ignorée
   assert.deepEqual(r.encaisseCumule, [100.5, 100.5, 100.5]); // sept → nov
   assert.ok(r.aujourdhuiPos > 2 / 11 && r.aujourdhuiPos < 3 / 11);
+  // Correctif : rien n'est perdu. Sans date + hors saison vont dans « autres », et les totaux couvrent tout.
+  assert.deepEqual([r.autres.prevu, r.autres.encaisse, r.autres.sansDate, r.autres.horsSaison], [1019, 999, 1, 1]);
+  assert.deepEqual(r.totaux, { prevu: 1254.5, encaisse: 1099.5, retard: 50, aVenir: 105 });
+  assert.equal(r.max, 1019); // la colonne « autres » compte dans l'échelle
 });
 
 test("v6 — conversion d'après l'étape actuelle, et signé par responsable", async () => {

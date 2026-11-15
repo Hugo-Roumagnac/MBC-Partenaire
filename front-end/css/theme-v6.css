@@ -462,3 +462,11 @@ body[data-screen="reglages"] #screen-reglages { display: block; }
 /* Bas de la barre latérale : une adresse e-mail longue est coupée (…) au lieu d'élargir la barre */
 .sidebar__footer { grid-template-columns: minmax(0, 1fr); }
 .user-chip, .user-chip__text { min-width: 0; }
+
+/* Échéancier : colonne « Sans date / Hors saison » séparée des mois par un filet pointillé */
+.chart-col--autres::before { content: ""; position: absolute; left: -2px; top: 0; bottom: 0; border-left: 1px dashed var(--color-border-strong, var(--color-border)); }
+.chart-col--autres .chart-col__lbl { font-style: italic; }
+.chart-foot__note { flex-basis: 100%; font-size: var(--text-xs); color: var(--color-text-faint); }
+.chart-col--autres .chart-tip strong { text-transform: none; }
+.chart-col__lbl-court { display: none; }
+@media (max-width: 479px) { .chart-col__lbl-long { display: none; } .chart-col__lbl-court { display: inline; } }

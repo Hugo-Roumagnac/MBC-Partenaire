@@ -395,13 +395,21 @@ export function echeancierSaison(echeances = [], saisonEnCours = "", jour = "") 
   const cles = Array.from({ length: 12 }, (_, i) => { const m = (8 + i) % 12, a = debut + (8 + i >= 12 ? 1 : 0); return `${a}-${String(m + 1).padStart(2, "0")}`; });
   const parMois = new Map(cles.map((k) => [k, { prevu: 0, encaisse: 0, retard: 0, aVenir: 0 }]));
   const sansDate = { prevu: 0, nombre: 0 };
+  // « Autres » : échéances sans date ou datées hors des 12 mois de la saison. Elles ne tombent dans aucun mois
+  // mais restent comptées (colonne à part + totaux), pour que l'encaissé du graphique égale celui du tableau de bord.
+  const autres = { prevu: 0, encaisse: 0, retard: 0, aVenir: 0, sansDate: 0, horsSaison: 0 };
+  const totaux = { prevu: 0, encaisse: 0, retard: 0, aVenir: 0 };
+  const classer = (m, e, c) => { m.prevu += c; if (e.paye) m.encaisse += c; else if (jour && e.datePrevue && e.datePrevue < jour) m.retard += c; else m.aVenir += c; };
   for (const e of echeances) {
     const c = enCents(e.montant);
     const k = e.datePrevue ? String(e.datePrevue).slice(0, 7) : null;
-    if (!k || !parMois.has(k)) { if (!k) { sansDate.prevu += c; sansDate.nombre++; } continue; }
-    const m = parMois.get(k);
-    m.prevu += c;
-    if (e.paye) m.encaisse += c; else if (jour && e.datePrevue < jour) m.retard += c; else m.aVenir += c;
+    classer(totaux, e, c);
+    if (!k || !parMois.has(k)) {
+      classer(autres, e, c);
+      if (!k) { sansDate.prevu += c; sansDate.nombre++; autres.sansDate++; } else autres.horsSaison++;
+      continue;
+    }
+    classer(parMois.get(k), e, c);
   }
   const garde = cles.filter((k, i) => i < 10 || parMois.get(k).prevu > 0); // septembre → juin toujours ; juillet / août si utiles
   const derniere = garde.length ? garde[garde.length - 1] : cles[9];
@@ -415,7 +423,14 @@ export function echeancierSaison(echeances = [], saisonEnCours = "", jour = "") 
   if (iJour >= 0) { const j = Number(String(jour).slice(8, 10)) || 1; aujourdhuiPos = (iJour + (j - 0.5) / 31) / mois.length; }
   const cumul = []; let total = 0;
   for (const m of mois) { if (jour && m.cle > String(jour).slice(0, 7)) break; total += enCents(m.encaisse); cumul.push(enEuros(total)); } // encaissé cumulé jusqu'au mois en cours
-  return { mois, max: Math.max(0, ...mois.map((m) => m.prevu)), sansDate: { prevu: enEuros(sansDate.prevu), nombre: sansDate.nombre }, aujourdhuiPos, encaisseCumule: cumul };
+  const euros = (o) => ({ prevu: enEuros(o.prevu), encaisse: enEuros(o.encaisse), retard: enEuros(o.retard), aVenir: enEuros(o.aVenir) });
+  return {
+    mois, max: Math.max(0, ...mois.map((m) => m.prevu), enEuros(autres.prevu)),
+    sansDate: { prevu: enEuros(sansDate.prevu), nombre: sansDate.nombre },
+    autres: { ...euros(autres), sansDate: autres.sansDate, horsSaison: autres.horsSaison, nombre: autres.sansDate + autres.horsSaison },
+    totaux: euros(totaux), // toutes les échéances de la saison (mois + autres)
+    aujourdhuiPos, encaisseCumule: cumul
+  };
 }
 
 // Conversion d'après l'ÉTAPE ACTUELLE de chaque fiche (hors archivées) : une fiche en « Négociation » est

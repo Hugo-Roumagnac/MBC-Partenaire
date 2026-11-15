@@ -23,9 +23,19 @@ export function graphiqueEcheancier(data) {
   }
   const echelle = arrondiEchelle(data.max);
   const h = (v) => `${Math.max(0, (v / echelle) * 100).toFixed(2)}%`;
-  const barres = data.mois.map((m) => {
+  // Colonne « Sans date / Hors saison » en bout d'axe, pour que les totaux du graphique soient complets
+  const a = data.autres;
+  const colonnes = [...data.mois];
+  if (a && a.nombre > 0) {
+    const court = a.horsSaison === 0 ? "Sans date" : a.sansDate === 0 ? "Hors saison" : "Autres";
+    const long = a.horsSaison === 0 ? `Sans date (${a.sansDate} échéance${a.sansDate > 1 ? "s" : ""})`
+      : a.sansDate === 0 ? `Hors saison (${a.horsSaison} échéance${a.horsSaison > 1 ? "s" : ""} datée${a.horsSaison > 1 ? "s" : ""} hors sept.–août)`
+      : `${a.sansDate} sans date, ${a.horsSaison} hors saison`;
+    colonnes.push({ ...a, court, long, autres: true });
+  }
+  const barres = colonnes.map((m) => {
     const detail = `${m.long} : prévu ${formatEuro(m.prevu)}, encaissé ${formatEuro(m.encaisse)}, en retard ${formatEuro(m.retard)}, à venir ${formatEuro(m.aVenir)}`;
-    return `<div class="chart-col${m.enCours ? " chart-col--now" : ""}" tabindex="0" role="img" aria-label="${escapeHtml(detail)}">
+    return `<div class="chart-col${m.enCours ? " chart-col--now" : ""}${m.autres ? " chart-col--autres" : ""}" tabindex="0" role="img" aria-label="${escapeHtml(detail)}">
       <span class="chart-tip" aria-hidden="true"><strong>${escapeHtml(m.long)}</strong>
         <span class="chart-tip__row"><i class="sw sw--prevu"></i>Prévu <b class="mono">${formatEuro(m.prevu)}</b></span>
         <span class="chart-tip__row"><i class="sw sw--encaisse"></i>Encaissé <b class="mono">${formatEuro(m.encaisse)}</b></span>
@@ -36,13 +46,14 @@ export function graphiqueEcheancier(data) {
         <span class="chart-bar__seg chart-bar__seg--retard" style="height:${h(m.retard)}"></span>
         <span class="chart-bar__seg chart-bar__seg--encaisse" style="height:${h(m.encaisse)}"></span>
       </span>
-      <span class="chart-col__lbl">${escapeHtml(m.court)}</span>
+      <span class="chart-col__lbl">${m.autres ? `<span class="chart-col__lbl-long">${escapeHtml(m.court)}</span><span class="chart-col__lbl-court">${m.court === "Sans date" ? "s. d." : "autres"}</span>` : escapeHtml(m.court)}</span>
     </div>`;
   }).join("");
-  const repere = data.aujourdhuiPos == null ? "" : `<span class="chart-now" style="left:${(data.aujourdhuiPos * 100).toFixed(2)}%" aria-hidden="true"><span>Aujourd'hui</span></span>`;
+  const pos = data.aujourdhuiPos == null ? null : (data.aujourdhuiPos * data.mois.length) / colonnes.length; // la colonne « autres » décale l'axe
+  const repere = pos == null ? "" : `<span class="chart-now" style="left:${(pos * 100).toFixed(2)}%" aria-hidden="true"><span>Aujourd'hui</span></span>`;
   return `<div class="chart">
       <div class="chart__axis mono" aria-hidden="true"><span>${formatCourt(echelle)}</span><span>${formatCourt(echelle / 2)}</span><span>0</span></div>
-      <div class="chart__plot"><div class="chart__cols" style="--n:${data.mois.length}">${barres}</div>${repere}</div>
+      <div class="chart__plot"><div class="chart__cols" style="--n:${colonnes.length}">${barres}</div>${repere}</div>
     </div>`;
 }
 

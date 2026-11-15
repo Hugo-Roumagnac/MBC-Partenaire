@@ -130,10 +130,11 @@ function renderGraphiques(t) {
   const ech = echeancierSaison(store.echeancesSaison, store.reglages.saisonEnCours, jour);
   const zone = $("chart-echeancier");
   if (zone) zone.innerHTML = graphiqueEcheancier(ech);
-  const tot = ech.mois.reduce((a, m) => ({ prevu: a.prevu + m.prevu * 100, encaisse: a.encaisse + m.encaisse * 100, retard: a.retard + m.retard * 100, aVenir: a.aVenir + m.aVenir * 100 }), { prevu: 0, encaisse: 0, retard: 0, aVenir: 0 });
-  const e = (c) => formatEuro(Math.round(c) / 100);
+  // Totaux de TOUTES les échéances de la saison (colonne « autres » comprise) : l'encaissé égale celui du score
+  const tot = ech.totaux, a = ech.autres;
   const pied = $("chart-echeancier-foot");
-  if (pied) pied.innerHTML = ech.max > 0 ? [`Prévu <strong class="mono">${e(tot.prevu)}</strong>`, `Encaissé <strong class="mono">${e(tot.encaisse)}</strong>`, `En retard <strong class="mono${tot.retard ? " due--late" : ""}">${e(tot.retard)}</strong>`, `À venir <strong class="mono">${e(tot.aVenir)}</strong>`, ...(ech.sansDate.nombre ? [`Sans date <strong class="mono">${formatEuro(ech.sansDate.prevu)}</strong>`] : [])].map((x) => `<span>${x}</span>`).join("") : "";
+  if (pied) pied.innerHTML = ech.max > 0 ? [`Prévu <strong class="mono">${formatEuro(tot.prevu)}</strong>`, `Encaissé <strong class="mono">${formatEuro(tot.encaisse)}</strong>`, `En retard <strong class="mono${tot.retard ? " due--late" : ""}">${formatEuro(tot.retard)}</strong>`, `À venir <strong class="mono">${formatEuro(tot.aVenir)}</strong>`,
+    ...(a.nombre ? [`<span class="chart-foot__note">dont ${formatEuro(a.prevu)} sans date ou hors saison (${formatEuro(a.encaisse)} encaissés) : complétez la date prévue dans Paiements pour les placer dans le bon mois</span>`] : [])].map((x) => `<span>${x}</span>`).join("") : "";
 
   // Courbes de tendance : encaissé cumulé (échéancier) et signatures récentes (journal). Absentes s'il n'y a pas assez de points.
   const se = $("spark-encaisse"); if (se) se.innerHTML = sparkline(ech.encaisseCumule, { libelle: "Encaissé cumulé, mois par mois depuis septembre" });
