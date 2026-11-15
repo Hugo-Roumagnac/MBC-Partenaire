@@ -5,6 +5,7 @@ import { repartirCents, planifierEcheancier, calculerTableauDeBord, enRetard, ce
 import { nomsDeRecherche, domaineProfessionnel, candidatsLogo } from "../front-end/js/selectors.js"; // v2 : logos automatiques
 import { validerSiret, formaterSiret, estSolde, colonnePipeline, resteAEncaisser, calculerRepartition, construireAFaire, resumerAppareil, PRESENCES } from "../front-end/js/selectors.js"; // v2
 import { normaliserPresence, aContacterParPartenaire, calculerBudget } from "../front-end/js/selectors.js"; // v3
+import { calculerEncaisseParCategorie, categorieEcheance, CATEGORIES_ECHEANCE } from "../front-end/js/selectors.js"; // v6
 import { ajouterMois } from "../front-end/js/dates.js"; // helper de dates
 import { CATALOGUE_CONTREPARTIES } from "../front-end/js/mock-seed.js"; // catalogue officiel du §3 du PDF
 
@@ -78,16 +79,38 @@ test("pipeline : « Signé » = soldés, « Non encaissé » = signés avec un r
   assert.equal(colonnePipeline(vue({ etape: "Négociation", encaisse: 0 })), "Négociation"); // seule l'étape « Signé » est concernée
 });
 
-test("répartition sous Signé / Encaissé : montants validés et total des cotisations", () => {
-  const axa = vue({ id: "axa", montantValide: 500, cotisationValidee: 200, encaisse: 700 }); // exemple AXA, tout payé
-  const myjob = vue({ id: "myjob", montantValide: 2500, cotisationValidee: 200, dontMecenat: 2000, encaisse: 1350 }); // payé à 50 %
-  const prospect = vue({ id: "p", etape: "Négociation", montantValide: 0, cotisationValidee: 0, encaisse: 300 }); // paiement sans contrat validé
-  const r = calculerRepartition([axa, myjob, prospect]);
-  assert.deepEqual(r.signe, { montants: 3000, cotisations: 400, mecenat: 2000 }); // 500 + 2500 ; 200 + 200 ; le non signé ne compte pas
-  assert.equal(calculerRepartition([axa]).encaisse.montants, 500); // AXA : 500 € vont aux montants validés…
-  assert.equal(calculerRepartition([axa]).encaisse.cotisations, 200); // …et 200 € aux cotisations
-  assert.equal(r.encaisse.cotisations, 300); // 200 (AXA) + 100 (50 % de 200 pour MyJob)
-  assert.equal(r.encaisse.montants + r.encaisse.cotisations, 700 + 1350 + 300); // retombe exactement sur l'encaissé total
+test("répartition : le signé vient des contrats des fiches « Signé »", () => {
+  const axa = vue({ id: "axa", montantValide: 500, cotisationValidee: 200 });
+  const myjob = vue({ id: "myjob", montantValide: 2500, cotisationValidee: 200, dontMecenat: 2000 });
+  const prospect = vue({ id: "p", etape: "Négociation", montantValide: 0, cotisationValidee: 0 });
+  assert.deepEqual(calculerRepartition([axa, myjob, prospect]).signe, { montants: 3000, cotisations: 400, mecenat: 2000 }); // le non signé ne compte pas
+});
+
+test("v6 — encaissé : somme STRICTE des paiements payés selon leur étiquette, sans prorata", () => {
+  const ech = (montant, paye, categorie) => ({ montant, paye, categorie });
+  const garage = vue({ id: "g", montantValide: 1000, cotisationValidee: 200, echeances: [ech(200, true, "Cotisation"), ech(475, true, "Sponsoring"), ech(525, false, "Sponsoring")] });
+  const myjob = vue({ id: "m", echeances: [ech(337.33, true, "Non précisé"), ech(100, true, undefined)] }); // ancienne échéance sans colonne → « Non précisé »
+  const r = calculerRepartition([garage, myjob]).encaisse;
+  assert.deepEqual(r, { sponsoring: 475, cotisations: 200, nonReparti: 437.33, total: 1112.33 }); // la non payée (525 €) ne compte pas
+  assert.equal(Math.round((r.sponsoring + r.cotisations + r.nonReparti) * 100), Math.round(r.total * 100)); // au centime près
+});
+
+test("v6 — l'encaissé par étiquette retombe exactement sur l'encaissé total, même avec des centimes", () => {
+  const liste = [];
+  for (let i = 0; i < 50; i++) liste.push({ montant: 33.33 + i / 100, paye: i % 3 !== 0, categorie: CATEGORIES_ECHEANCE[i % 3] });
+  const r = calculerEncaisseParCategorie(liste);
+  const attendu = liste.filter((e) => e.paye).reduce((t, e) => t + Math.round(e.montant * 100), 0) / 100;
+  assert.equal(r.total, attendu);
+  assert.equal(Math.round((r.sponsoring + r.cotisations + r.nonReparti) * 100), Math.round(attendu * 100));
+});
+
+test("v6 — étiquette inconnue ou absente lue comme « Non précisé » ; le générateur pose l'étiquette choisie", () => {
+  assert.equal(categorieEcheance({}), "Non précisé");
+  assert.equal(categorieEcheance({ categorie: "Autre" }), "Non précisé");
+  assert.equal(categorieEcheance({ categorie: "Cotisation" }), "Cotisation");
+  const plan = planifierEcheancier({ echeances: [] }, { montant: 600, nombre: 3, premierVersement: "2026-10-15", categorie: "Sponsoring" });
+  assert.deepEqual(plan.aCreer.map((e) => e.categorie), ["Sponsoring", "Sponsoring", "Sponsoring"]);
+  assert.equal(planifierEcheancier({ echeances: [] }, { montant: 100, nombre: 1, premierVersement: "2026-10-15" }).aCreer[0].categorie, "Non précisé");
 });
 
 test("événements v5 : « À contacter », « Contacté en attente », « Oui », « Non »", () => {
@@ -138,4 +161,57 @@ test("logos automatiques : site tiré des e-mails pro, noms de recherche, adress
   assert.deepEqual(c.map((x) => x.source), ["ecf82.fr", "nom « ECF »"]); // e-mail d'abord (plus fiable), puis le nom
   assert.match(c[1].url, /^https:\/\/img\.logo\.dev\/name\/ECF\?token=pk_test&.*fallback=404/); // clé publique + 404 si inconnu
   assert.deepEqual(candidatsLogo({ nom: "ECF" }, ""), []); // sans clé : désactivé
+});
+
+test("v6 — e-mails des invités : filtre Oui / sans réponse, doublons retirés, partenaires sans adresse signalés", async () => {
+  const { emailsInvites } = await import("../front-end/js/selectors.js");
+  const partenaires = [
+    { id: "a", nom: "Alpha", contacts: [{ email: "Jean@alpha.fr" }, { email: "compta@alpha.fr" }] },
+    { id: "b", nom: "Bravo", contacts: [{ email: "jean@alpha.fr" }] }, // même adresse qu'Alpha (casse différente)
+    { id: "c", nom: "Charlie", contacts: [{ email: "" }, { email: "pas-une-adresse" }] },
+    { id: "d", nom: "Delta", contacts: [{ email: "d@delta.com" }] }
+  ];
+  const evt = { presences: [{ partenaireId: "a", presence: "Oui" }, { partenaireId: "b", presence: "Contacté en attente" }, { partenaireId: "c", presence: "Oui" }, { partenaireId: "d", presence: "Non" }, { partenaireId: "zz", presence: "Oui" }] };
+  assert.deepEqual(emailsInvites(evt, partenaires, "tous"), { adresses: ["Jean@alpha.fr", "compta@alpha.fr", "d@delta.com"], sansEmail: ["Charlie"], partenaires: 4 });
+  assert.deepEqual(emailsInvites(evt, partenaires, "oui"), { adresses: ["Jean@alpha.fr", "compta@alpha.fr"], sansEmail: ["Charlie"], partenaires: 2 });
+  assert.deepEqual(emailsInvites(evt, partenaires, "attente"), { adresses: ["jean@alpha.fr"], sansEmail: [], partenaires: 1 });
+  assert.deepEqual(emailsInvites({ presences: [] }, partenaires).adresses, []);
+});
+
+test("v6 — échéancier de la saison : prévu / encaissé / retard / à venir par mois, au centime près", async () => {
+  const { echeancierSaison } = await import("../front-end/js/selectors.js");
+  const e = (d, montant, paye) => ({ datePrevue: d, montant, paye });
+  const r = echeancierSaison([e("2026-09-15", 100.5, true), e("2026-09-20", 50, false), e("2026-11-30", 75, false), e("2027-07-01", 10, false), e(null, 20, false), e("2025-09-15", 999, true)], "2026-27", "2026-11-15");
+  assert.equal(r.mois[0].cle, "2026-09");
+  assert.deepEqual([r.mois[0].prevu, r.mois[0].encaisse, r.mois[0].retard, r.mois[0].aVenir], [150.5, 100.5, 50, 0]);
+  assert.deepEqual([r.mois[2].retard, r.mois[2].aVenir], [0, 75]); // 30/11 > 15/11 : à venir
+  assert.equal(r.mois.length, 11); // juillet ajouté car une échéance y tombe, août non
+  assert.deepEqual(r.sansDate, { prevu: 20, nombre: 1 });
+  assert.equal(r.mois.reduce((t, m) => t + m.prevu, 0), 235.5); // l'échéance d'une autre saison est ignorée
+  assert.deepEqual(r.encaisseCumule, [100.5, 100.5, 100.5]); // sept → nov
+  assert.ok(r.aujourdhuiPos > 2 / 11 && r.aujourdhuiPos < 3 / 11);
+});
+
+test("v6 — conversion d'après l'étape actuelle, et signé par responsable", async () => {
+  const { calculerConversion, signeParResponsable } = await import("../front-end/js/selectors.js");
+  const P = (etape, responsable = "", mv = 0) => ({ etape, responsable, montantValide: mv, cotisationValidee: 0 });
+  const liste = [P("Prospect"), P("Négociation"), P("Signé", "Eric", 1000), P("Signé", "Thomas", 500), P("Signé", "Eric", 250.5), P("Perdu"), P("Archivé")];
+  const c = calculerConversion(liste);
+  assert.equal(c.total, 6);
+  assert.deepEqual(c.etapes.map((x) => x.nombre), [6, 4, 4, 4, 4, 3]);
+  assert.equal(c.taux, 75); // 3 signés / (3 + 1 perdu)
+  assert.deepEqual(signeParResponsable(liste), [{ responsable: "Eric", montant: 1250.5 }, { responsable: "Thomas", montant: 500 }]);
+});
+
+test("v6 — signatures par semaine d'après le journal", async () => {
+  const { signaturesParSemaine } = await import("../front-end/js/selectors.js");
+  const j = [
+    { tableNom: "partenaires", action: "UPDATE", champs: ["etape"], apres: { etape: "Signé" }, le: "2026-11-14T10:00:00Z" },
+    { tableNom: "partenaires", action: "INSERT", champs: [], apres: { etape: "Signé" }, le: "2026-10-01T10:00:00Z" },
+    { tableNom: "partenaires", action: "UPDATE", champs: ["nom"], apres: { etape: "Signé" }, le: "2026-11-10T10:00:00Z" }, // pas un changement d'étape
+    { tableNom: "contrats", action: "UPDATE", champs: ["etape"], apres: { etape: "Signé" }, le: "2026-11-10T10:00:00Z" }
+  ];
+  const s = signaturesParSemaine(j, "2026-11-15", 8);
+  assert.equal(s.length, 8); assert.equal(s[7], 2); assert.equal(s[0] <= s[7], true);
+  assert.deepEqual(signaturesParSemaine([], "2026-11-15"), []);
 });

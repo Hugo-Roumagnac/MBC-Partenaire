@@ -4,7 +4,7 @@ import { ficheHref } from "./router.js";
 import { formatDate, escapeHtml, showToast, slugify } from "./utils.js";
 import { aujourdhui } from "./dates.js";
 import { ouvrirModale, fermerModale } from "./modal.js";
-import { PRESENCES, PRESENCE_CONTACT, PRESENCE_ATTENTE } from "./selectors.js"; // v5 : « À contacter », « Contacté en attente », « Oui », « Non »
+import { PRESENCES, PRESENCE_CONTACT, PRESENCE_ATTENTE, emailsInvites } from "./selectors.js"; // v5 : « À contacter », « Contacté en attente », « Oui », « Non »
 import { ouvrirNouveauContact } from "./contacts.js"; // v2 : fenêtre « Nouveau contact »
 import { icon } from "./icons.js"; // v2 : icône du bouton « Ajouter le contact »
 
@@ -83,6 +83,8 @@ export function initEvenements() {
     try { await inviter(evt.id, ids); showToast(`${ids.length} partenaire${ids.length > 1 ? "s" : ""} invité${ids.length > 1 ? "s" : ""}`); }
     catch { showToast("Échec de l'ajout"); }
   });
+
+  initCopieEmails(); // v6 : bouton « Copier les e-mails »
 
   // Présences : délégation (les lignes sont recréées à chaque rendu)
   const tbody = $("attendance-tbody");
@@ -239,4 +241,51 @@ async function onDeleteEvent(e) {
     selectedId = null;
     showToast("Événement supprimé");
   } catch { showToast("Échec de la suppression"); }
+}
+
+// =============================================================================
+// v6 — « COPIER LES E-MAILS » : adresses des contacts des partenaires invités
+// =============================================================================
+// Déroulé : le bouton ouvre une fenêtre → on choisit qui (tous / « Oui » / sans réponse) et le séparateur
+// → l'aperçu se met à jour → « Copier » place la liste dans le presse-papiers et affiche « X adresses e-mail copiées ».
+// Les partenaires invités qui n'ont aucun contact avec une adresse valide sont listés pour être complétés.
+function initCopieEmails() {
+  const modal = $("modal-emails"), form = $("form-emails");
+  if (!modal || !form) return;
+  const choix = () => ({ qui: form.qui.value || "tous", sep: form.sep.value || "; " });
+  const majApercu = () => {
+    const evt = selectedEvent(); if (!evt) return;
+    const { qui, sep } = choix();
+    for (const cle of ["tous", "oui", "attente"]) { const n = form.querySelector(`[data-n="${cle}"]`); if (n) n.textContent = `(${emailsInvites(evt, store.partenaires, cle).partenaires})`; }
+    const r = emailsInvites(evt, store.partenaires, qui);
+    $("emails-apercu").value = r.adresses.join(sep);
+    $("emails-count").textContent = String(r.adresses.length);
+    const bouton = $("emails-copier"); bouton.disabled = !r.adresses.length;
+    bouton.querySelector("span").textContent = r.adresses.length ? `Copier ${r.adresses.length} adresse${r.adresses.length > 1 ? "s" : ""}` : "Aucune adresse à copier";
+    const manque = $("emails-manquants");
+    manque.hidden = !r.sansEmail.length;
+    manque.textContent = r.sansEmail.length ? `Sans adresse e-mail (${r.sansEmail.length}) : ${r.sansEmail.join(", ")}. Ajoutez un contact dans leur fiche.` : "";
+  };
+  $("btn-copy-emails")?.addEventListener("click", () => {
+    const evt = selectedEvent(); if (!evt) return;
+    if (!(evt.presences || []).length) { showToast("Aucun partenaire invité à cet événement"); return; }
+    $("emails-evenement").textContent = `${evt.nom} · ${formatDate(evt.date)}`;
+    form.qui.value = "tous";
+    majApercu();
+    ouvrirModale(modal);
+  });
+  form.addEventListener("change", majApercu);
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const texte = $("emails-apercu").value, n = Number($("emails-count").textContent) || 0;
+    if (!n) return;
+    if (await copier(texte, $("emails-apercu"))) { fermerModale(modal); showToast(`${n} adresse${n > 1 ? "s" : ""} e-mail copiée${n > 1 ? "s" : ""}`); }
+    else showToast("Copie impossible : sélectionnez le texte et copiez-le à la main", { erreur: true });
+  });
+}
+
+// Presse-papiers : API moderne, sinon sélection + commande « copier » (anciens navigateurs, contexte non sécurisé).
+async function copier(texte, champ) {
+  try { await navigator.clipboard.writeText(texte); return true; } catch { /* repli ci-dessous */ }
+  try { champ.focus(); champ.select(); return document.execCommand("copy"); } catch { return false; }
 }

@@ -85,6 +85,8 @@ create table if not exists public.echeances (
   montant       numeric(12,2) not null default 0 check (montant >= 0),
   paye          boolean not null default false,
   note          text not null default '',
+  categorie     text not null default 'Non précisé'   -- v6 : à quoi sert le paiement (répartition exacte de l'encaissé)
+                check (categorie in ('Sponsoring','Cotisation','Non précisé')),
   cree_le       timestamptz not null default now()
 );
 

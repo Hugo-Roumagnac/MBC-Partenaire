@@ -36,6 +36,7 @@ export async function seedTables() {
   const SAISON_P = "2025-26"; // saison précédente
 
   // Transformation des partenaires
+  let signesVus = 0; // v6 (démo) : compteur pour étiqueter les échéances
   for (const p of data.partenaires) {
     tables.partenaires.push({
       id: p.id,
@@ -92,6 +93,7 @@ export async function seedTables() {
     // les premières sont marquées payées à hauteur de l'encaissé, d'autres restent en retard.
     const totalValide = (p.montantValide || 0) + (p.cotisationValidee || 0);
     if (p.etape === "Signé" && totalValide > 0) {
+      const etiquette = signesVus++ % 3 === 1 ? "Non précisé" : "Sponsoring"; // v6 (démo) : une fiche signée sur trois reste à étiqueter
       const n = totalValide >= 1500 ? 8 : totalValide >= 800 ? 4 : 1;
       const base = Math.floor((totalValide * 100) / n);
       const payees = Math.round(((p.encaisse || 0) / totalValide) * n);
@@ -102,7 +104,8 @@ export async function seedTables() {
           id: crypto.randomUUID(), partenaireId: p.id, saison: SAISON_N,
           datePrevue: `${annee}-${String(((mois - 1) % 12) + 1).padStart(2, "0")}-15`,
           montant: cents / 100, paye: i < payees,
-          note: i < payees ? (i % 2 ? "Chèque" : "Virement") : ""
+          note: i < payees ? (i % 2 ? "Chèque" : "Virement") : "",
+          categorie: etiquette // v6 (démo)
         });
       }
     }

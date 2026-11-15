@@ -2,7 +2,8 @@
 import { requireSession, initEnTete, completerUtilisateur, majLiaisons } from "./auth.js";
 import { initStore, onChange, store } from "./store.js";
 import { initRouter, enregistrerEcran, rendreEcranActif, naviguer, ecranActif } from "./router.js";
-import { initDashboard, renderDashboard } from "./dashboard.js";
+import { initDashboard, renderDashboard, renderReglages } from "./dashboard.js";
+import { initInterface } from "./interface.js"; // v6 : barre latérale repliable, choix du thème, menu « Plus » (mobile)
 import { initPipeline, renderPipeline } from "./pipeline.js";
 import { initPartenaires, renderTable, ouvrirNouveauPartenaire } from "./partenaires.js";
 import { initPaiements, renderPaiements } from "./paiements.js";
@@ -36,6 +37,7 @@ try {
   initInvitations();
   initDashboard(); initPipeline(); initPartenaires(); initPaiements(); initEvenements(); initFiche();
   initJournal(); initSiret(); initContacts(); initLogos(); initLogosAuto(); initSuggestionNouveau(); // v2
+  initInterface(); // v6
   initActionsRapides();
   initRechercheGlobale();
   document.querySelectorAll("form[data-no-submit]").forEach((f) => f.addEventListener("submit", (e) => e.preventDefault()));
@@ -48,6 +50,7 @@ try {
   enregistrerEcran("paiements", renderPaiements);
   enregistrerEcran("evenements", renderEvenements);
   enregistrerEcran("journal", renderJournal); // v2
+  enregistrerEcran("reglages", renderReglages); // v6 : réglages du club (écran dédié)
 
   onChange(() => { // à chaque changement (local ou temps réel)
     rendreEcranActif(); // seul l'écran visible est redessiné

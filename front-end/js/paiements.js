@@ -1,6 +1,6 @@
 // paiements.js — écran « Paiements » (§4.6).
 import { store, ecrire } from "./store.js"; // état + écriture optimiste
-import { calculerPaiements, enRetard } from "./selectors.js"; // règles de calcul
+import { calculerPaiements, enRetard, CATEGORIES_ECHEANCE, categorieEcheance, categorieSlug } from "./selectors.js"; // règles de calcul (v6 : étiquettes)
 import { aujourdhui, cleMois, libelleMois } from "./dates.js"; // dates
 import { formatEuro, formatDate, escapeHtml, showToast } from "./utils.js"; // affichage
 import { ficheHref } from "./router.js"; // lien vers la fiche
@@ -26,6 +26,12 @@ export function initPaiements() {
 
   // Délégation : UNE seule écoute pour toutes les cases « payé » (les lignes sont recréées à chaque rendu).
   $("payments-list")?.addEventListener("change", async (e) => {
+    const etiquette = e.target.closest("select[data-echeance-cat]"); // v6 : étiquette modifiée depuis la liste
+    if (etiquette) {
+      try { await ecrire("echeances", etiquette.dataset.echeanceCat, { categorie: categorieEcheance({ categorie: etiquette.value }) }); showToast(`Étiquette : ${etiquette.value}`); }
+      catch (err) { console.error(err); showToast("Échec de l'enregistrement"); renderPaiements(); }
+      return;
+    }
     const case_ = e.target.closest("input[data-echeance-id]"); // case cochée
     if (!case_) return; // autre champ
     const id = case_.dataset.echeanceId; // identifiant de l'échéance
@@ -74,7 +80,7 @@ export function renderPaiements() {
       <section class="month-group" aria-labelledby="m-${cle}">
         <h2 id="m-${cle}" class="month-group__title">${cle === "sans-date" ? "Sans date de paiement" : libelleMois(cle)} <span class="month-group__total">· ${formatEuro(total)}</span></h2>
         <div class="table-wrap"><table class="table table--cards">
-          <thead><tr><th scope="col">Payé</th><th scope="col">Partenaire</th><th scope="col">Date prévue</th><th scope="col" class="num">Montant</th><th scope="col">Note</th></tr></thead>
+          <thead><tr><th scope="col">Payé</th><th scope="col">Partenaire</th><th scope="col">Date prévue</th><th scope="col" class="num">Montant</th><th scope="col">Étiquette</th><th scope="col">Note</th></tr></thead>
           <tbody>${lignes.map((e) => ligne(e, parId.get(e.partenaireId), jour)).join("")}</tbody>
         </table></div>
       </section>`;
@@ -92,6 +98,7 @@ function ligne(e, p, jour) {
       <td data-label="Partenaire"><a class="link-fiche" href="${ficheHref(p.id)}">${escapeHtml(p.nom)}</a>${p.responsable ? `<span class="table__sub">${escapeHtml(p.responsable)}</span>` : ""}</td>
       <td data-label="Date prévue">${e.datePrevue ? `<span class="${retard ? "due--late" : ""}">${formatDate(e.datePrevue)}</span>${retard ? ' <span class="badge badge--danger">En retard</span>' : ""}` : '<span class="faint">—</span>'}</td>
       <td data-label="Montant" class="num"><strong>${formatEuro(e.montant)}</strong></td>
+      <td data-label="Étiquette"><select class="input--sm cat-select cat-select--${categorieSlug(e)}" data-echeance-cat="${escapeHtml(e.id)}" aria-label="Étiquette du paiement : ${escapeHtml(p.nom)}, ${formatEuro(e.montant)}">${CATEGORIES_ECHEANCE.map((c) => `<option ${c === categorieEcheance(e) ? "selected" : ""}>${c}</option>`).join("")}</select></td>
       <td data-label="Note">${escapeHtml(e.note || "") || '<span class="faint">—</span>'}</td>
     </tr>`;
 }

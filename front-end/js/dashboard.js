@@ -1,6 +1,8 @@
 // dashboard.js — écran « Tableau de bord » (§4.2). Affichage uniquement : les calculs sont dans selectors.js.
 import { store, ecrire } from "./store.js";
 import { calculerTableauDeBord, calculerRepartition } from "./selectors.js"; // v2 : + répartition automatique de l'argent (v3 : + budget)
+import { echeancierSaison, calculerConversion, signeParResponsable, signaturesParSemaine } from "./selectors.js"; // v6 : graphiques
+import { sparkline, graphiqueEcheancier, barreEmpilee, graphiqueConversion, barresHorizontales } from "./charts.js"; // v6 : rendu des graphiques
 import { aujourdhui } from "./dates.js";
 import { formatEuro, formatDate, escapeHtml, showToast, stageSlug } from "./utils.js";
 import { ficheHref } from "./router.js";
@@ -117,6 +119,45 @@ export function renderDashboard() {
     <span class="muted">${formatEuro(v.montantPrecedent)} en ${escapeHtml(store.reglages.saisonPrecedente)}</span></a></li>`).join("")
     : `<li class="empty">${icon("check")}Aucun partenaire perdu.</li>`;
 
+  renderGraphiques(t); // v6 : échéancier, pipeline empilé, conversion, responsables, courbes de tendance
+}
+
+// =============================================================================
+// v6 — GRAPHIQUES (calculs : selectors.js ; dessin : charts.js)
+// =============================================================================
+function renderGraphiques(t) {
+  const jour = aujourdhui();
+  const ech = echeancierSaison(store.echeancesSaison, store.reglages.saisonEnCours, jour);
+  const zone = $("chart-echeancier");
+  if (zone) zone.innerHTML = graphiqueEcheancier(ech);
+  const tot = ech.mois.reduce((a, m) => ({ prevu: a.prevu + m.prevu * 100, encaisse: a.encaisse + m.encaisse * 100, retard: a.retard + m.retard * 100, aVenir: a.aVenir + m.aVenir * 100 }), { prevu: 0, encaisse: 0, retard: 0, aVenir: 0 });
+  const e = (c) => formatEuro(Math.round(c) / 100);
+  const pied = $("chart-echeancier-foot");
+  if (pied) pied.innerHTML = ech.max > 0 ? [`Prévu <strong class="mono">${e(tot.prevu)}</strong>`, `Encaissé <strong class="mono">${e(tot.encaisse)}</strong>`, `En retard <strong class="mono${tot.retard ? " due--late" : ""}">${e(tot.retard)}</strong>`, `À venir <strong class="mono">${e(tot.aVenir)}</strong>`, ...(ech.sansDate.nombre ? [`Sans date <strong class="mono">${formatEuro(ech.sansDate.prevu)}</strong>`] : [])].map((x) => `<span>${x}</span>`).join("") : "";
+
+  // Courbes de tendance : encaissé cumulé (échéancier) et signatures récentes (journal). Absentes s'il n'y a pas assez de points.
+  const se = $("spark-encaisse"); if (se) se.innerHTML = sparkline(ech.encaisseCumule, { libelle: "Encaissé cumulé, mois par mois depuis septembre" });
+  const sig = signaturesParSemaine(store.journal, jour, 8);
+  const ss = $("spark-signe"); if (ss) ss.innerHTML = sig[sig.length - 1] > 0 ? sparkline(sig, { libelle: "Signatures cumulées sur les 8 dernières semaines" }) : "";
+  const ssub = $("spark-signe-sub"); if (ssub) ssub.textContent = sig[sig.length - 1] > 0 ? `${sig[sig.length - 1]} signature${sig[sig.length - 1] > 1 ? "s" : ""} en 8 semaines` : "";
+
+  // Pipeline : barre empilée au-dessus de la liste
+  const pile = $("pipeline-stack"); if (pile) pile.innerHTML = barreEmpilee(t.pipeline.map((l) => ({ ...l, slug: stageSlug(l.etape) })));
+
+  // Conversion
+  const c = calculerConversion(store.partenaires);
+  const f = $("conversion-funnel"); if (f) f.innerHTML = graphiqueConversion(c);
+  texte("conversion-taux", c.taux == null ? "" : `${c.taux} % de transformation (${c.signes} signés, ${c.perdus} perdus)`);
+
+  // Signé par responsable
+  const r = $("chart-responsables");
+  if (r) r.innerHTML = barresHorizontales(signeParResponsable(store.partenaires).map((x) => ({ libelle: x.responsable || "Sans responsable", montant: x.montant })));
+}
+
+// =============================================================================
+// v6 — ÉCRAN « RÉGLAGES DU CLUB » (champs déplacés depuis le tableau de bord)
+// =============================================================================
+export function renderReglages() {
   // ----- Réglages du club (ne touche pas un champ en cours de saisie) -----
   const champs = { "set-season": store.reglages.saisonEnCours, "set-prev": store.reglages.saisonPrecedente };
   for (const [id, valeur] of Object.entries(champs)) { const el = $(id); if (el && document.activeElement !== el) el.value = valeur ?? ""; }
@@ -127,16 +168,17 @@ export function renderDashboard() {
 }
 
 // =============================================================================
-// v2 — RÉPARTITION SOUS LES TOTAUX « Signé » ET « Encaissé »
+// RÉPARTITION SOUS « Encaissé » (v6 : Sponsoring / Cotisations / Non réparti, d'après l'étiquette des paiements)
 // =============================================================================
-// Deux lignes sous chaque total : la part qui vient des montants validés et le TOTAL des cotisations
-// (règles et exemple AXA dans selectors.calculerRepartition). Les deux lignes font exactement le total.
 function renderRepartition() {
   const r = calculerRepartition(store.partenaires); // calcul pur
   const ligne = (libelle, montant, titre = "") => `<span class="score__split-row"${titre ? ` title="${escapeHtml(titre)}"` : ""}><span>${libelle}</span><strong>${formatEuro(montant)}</strong></span>`;
   const signe = $("score-signed-split"), cash = $("score-cashed-split");
   if (signe) signe.innerHTML = ""; // v3 : la ventilation du validé est désormais dans « Répartition du budget »
-  if (cash) cash.innerHTML = ligne("Montants validés", r.encaisse.montants) + ligne("Cotisations", r.encaisse.cotisations, "Paiements partiels répartis au prorata du contrat de chaque partenaire");
+  // v6 : somme STRICTE des paiements payés selon leur étiquette ; les trois lignes font exactement le total encaissé
+  if (cash) cash.innerHTML = ligne("Sponsoring", r.encaisse.sponsoring, "Paiements payés étiquetés « Sponsoring »")
+    + ligne("Cotisations", r.encaisse.cotisations, "Paiements payés étiquetés « Cotisation »")
+    + `<span class="score__split-row score__split-row--rappel${r.encaisse.nonReparti ? " is-actif" : ""}" title="Paiements payés étiquetés « Non précisé » : à étiqueter dans l'échéancier de chaque fiche ou dans Paiements"><span>Non réparti</span><strong>${formatEuro(r.encaisse.nonReparti)}</strong></span>`;
 }
 
 // =============================================================================

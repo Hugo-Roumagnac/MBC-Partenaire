@@ -22,6 +22,14 @@ const ANCIENNES_PRESENCES = { "Contacter": PRESENCE_CONTACT, "Contact à rajoute
 export const PRESENCES = [PRESENCE_CONTACT, PRESENCE_ATTENTE, "Oui", "Non"];
 export const normaliserPresence = (p) => ANCIENNES_PRESENCES[p] || p;
 
+// v6 : étiquette de chaque échéance (colonne « categorie », supabase/migration-v6.sql).
+// Elle dit à quoi sert le paiement ; la carte « Encaissé » additionne strictement les paiements de chaque étiquette.
+// « Non précisé » : valeur des échéances créées avant la v6 (et valeur lue si la colonne n'existe pas encore).
+export const CATEGORIE_NON_PRECISEE = "Non précisé";
+export const CATEGORIES_ECHEANCE = ["Sponsoring", "Cotisation", CATEGORIE_NON_PRECISEE];
+export const categorieEcheance = (e) => (CATEGORIES_ECHEANCE.includes(e?.categorie) ? e.categorie : CATEGORIE_NON_PRECISEE);
+export const categorieSlug = (e) => ({ Sponsoring: "sponsoring", Cotisation: "cotisation" })[categorieEcheance(e)] || "non-precise"; // classe CSS de l'étiquette
+
 // v3 : événements pour lesquels chaque partenaire est « à contacter ».
 // → Map partenaireId → [{ presenceId, evenementId, evenementNom, date, noms }], le plus récent d'abord.
 export function aContacterParPartenaire(evenements = []) {
@@ -166,7 +174,7 @@ export function montantParDefaut(vue) {
 }
 
 // Plan du générateur d'échéancier (§5 règle 3) : ne touche à RIEN, renvoie ce qu'il faut créer/supprimer.
-export function planifierEcheancier(vue, { montant, nombre, premierVersement }) {
+export function planifierEcheancier(vue, { montant, nombre, premierVersement, categorie }) {
   const n = Math.max(1, Math.floor(Number(nombre) || 1)); // au moins 1 versement
   const parts = repartirCents(enCents(montant), n); // parts en cents
   return {
@@ -175,7 +183,8 @@ export function planifierEcheancier(vue, { montant, nombre, premierVersement }) 
       datePrevue: ajouterMois(premierVersement, i), // 1er versement + i mois
       montant: enEuros(cents), // montant en euros
       paye: false, // jamais payée à la création
-      note: "" // note vide
+      note: "", // note vide
+      categorie: categorieEcheance({ categorie }) // v6 : étiquette choisie dans le générateur (« Non précisé » par défaut)
     }))
   };
 }
@@ -243,23 +252,27 @@ export const formaterSiret = (siret) => (String(siret || "").length === 14 ? `${
 // et ainsi de suite pour chaque partenaire : on obtient le TOTAL des cotisations, etc.
 //
 // Signé    : partenaires à l'étape « Signé » (même règle que le score) ; montant validé et cotisation validée.
-// Encaissé : TOUTES les échéances payées de la saison (même règle que le score « Encaissé »).
-//            Un paiement partiel est réparti au PRORATA du contrat du partenaire : s'il a payé la moitié,
-//            la moitié va aux cotisations… La cotisation encaissée ne dépasse jamais la cotisation validée ;
-//            le reste (y compris un paiement sans contrat validé) compte en « Montants validés ».
-// Les deux parts retombent donc EXACTEMENT sur les totaux affichés.
+// Encaissé (v6) : TOUTES les échéances payées de la saison, additionnées STRICTEMENT selon leur étiquette :
+//            « Sponsoring », « Cotisation » ou « Non précisé » (→ ligne « Non réparti »).
+//            Plus aucun calcul au prorata : aucun centime n'est inventé, et les trois lignes font
+//            exactement le total encaissé (calcul en cents entiers).
 export function calculerRepartition(partenaires) {
-  const signe = { montants: 0, cotisations: 0, mecenat: 0 }, encaisse = { montants: 0, cotisations: 0 }; // en cents
+  const signe = { montants: 0, cotisations: 0, mecenat: 0 }; // en cents
   for (const v of partenaires) {
     const mv = enCents(v.montantValide), cv = enCents(v.cotisationValidee); // contrat de la saison
     if (v.etape === "Signé") { signe.montants += mv; signe.cotisations += cv; signe.mecenat += Math.min(enCents(v.dontMecenat), mv); } // signé
-    const paye = enCents(v.encaisse); // échéances payées du partenaire
-    if (!paye) continue;
-    const cot = mv + cv > 0 ? Math.min(cv, Math.round((paye * cv) / (mv + cv))) : 0; // part « cotisation » au prorata, plafonnée
-    encaisse.cotisations += cot; encaisse.montants += paye - cot; // le reste va aux montants validés
   }
   const euros = (o) => Object.fromEntries(Object.entries(o).map(([k, c]) => [k, enEuros(c)])); // cents → euros
-  return { signe: euros(signe), encaisse: euros(encaisse) };
+  return { signe: euros(signe), encaisse: calculerEncaisseParCategorie(partenaires.flatMap((v) => v.echeances || [])) };
+}
+
+// v6 : encaissé par étiquette, sur une liste d'échéances (seules celles cochées « payé » comptent).
+// → { sponsoring, cotisations, nonReparti, total } en euros ; sponsoring + cotisations + nonReparti === total.
+export function calculerEncaisseParCategorie(echeances = []) {
+  const c = { sponsoring: 0, cotisations: 0, nonReparti: 0 }; // en cents
+  const cle = { Sponsoring: "sponsoring", Cotisation: "cotisations", [CATEGORIE_NON_PRECISEE]: "nonReparti" };
+  for (const e of echeances) if (e.paye) c[cle[categorieEcheance(e)]] += enCents(e.montant);
+  return { sponsoring: enEuros(c.sponsoring), cotisations: enEuros(c.cotisations), nonReparti: enEuros(c.nonReparti), total: enEuros(c.sponsoring + c.cotisations + c.nonReparti) };
 }
 
 // =============================================================================
@@ -340,4 +353,102 @@ export function calculerBudget(partenaires) {
     nombre: l.length, // nombre de fiches comptées
     nonSignes: l.filter((v) => v.etape !== "Signé").length // fiches avec du validé mais pas encore « Signé » (affiché en aide)
   };
+}
+
+// =============================================================================
+// v6 — ÉVÉNEMENTS : adresses e-mail des partenaires invités (bouton « Copier les e-mails »)
+// =============================================================================
+// qui : "tous" (tous les invités), "oui" (présence « Oui »), "attente" (pas encore de réponse :
+// « À contacter » ou « Contacté en attente »). Les adresses viennent des CONTACTS de chaque fiche.
+// → { adresses: [uniques, ordre des partenaires], sansEmail: [noms des partenaires sans adresse], partenaires: nombre retenu }
+export const FILTRES_EMAILS = {
+  tous: () => true,
+  oui: (x) => normaliserPresence(x.presence) === "Oui",
+  attente: (x) => [PRESENCE_CONTACT, PRESENCE_ATTENTE].includes(normaliserPresence(x.presence))
+};
+export function emailsInvites(evenement, partenaires = [], qui = "tous") {
+  const filtre = FILTRES_EMAILS[qui] || FILTRES_EMAILS.tous;
+  const parId = new Map(partenaires.map((p) => [p.id, p]));
+  const retenus = (evenement?.presences || []).filter(filtre).map((x) => parId.get(x.partenaireId)).filter(Boolean)
+    .sort((a, b) => String(a.nom).localeCompare(String(b.nom), "fr"));
+  const vues = new Set(), adresses = [], sansEmail = [];
+  for (const p of retenus) {
+    const siennes = (p.contacts || []).map((c) => String(c.email || "").trim()).filter((m) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(m));
+    if (!siennes.length) { sansEmail.push(p.nom); continue; }
+    for (const m of siennes) { const k = m.toLowerCase(); if (!vues.has(k)) { vues.add(k); adresses.push(m); } }
+  }
+  return { adresses, sansEmail, partenaires: retenus.length };
+}
+
+// =============================================================================
+// v6 — GRAPHIQUES DU TABLEAU DE BORD (calculs purs ; l'affichage est dans charts.js)
+// =============================================================================
+const MOIS_COURTS = ["Janv.", "Févr.", "Mars", "Avr.", "Mai", "Juin", "Juil.", "Août", "Sept.", "Oct.", "Nov.", "Déc."];
+const MOIS_LONGS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
+
+// Échéancier de la saison, mois par mois (septembre → juin, prolongé à juillet / août s'il y a des échéances).
+// Pour chaque mois, d'après la DATE PRÉVUE des échéances (la base ne stocke pas la date réelle de paiement) :
+// prévu (tout), encaissé (payées), en retard (non payées et date dépassée), à venir (non payées, date future).
+// Les échéances sans date sont comptées à part (sansDate). Montants en euros, calculés en cents.
+export function echeancierSaison(echeances = [], saisonEnCours = "", jour = "") {
+  const debut = Number(String(saisonEnCours).slice(0, 4)) || Number(String(jour).slice(0, 4)) || new Date().getFullYear();
+  const cles = Array.from({ length: 12 }, (_, i) => { const m = (8 + i) % 12, a = debut + (8 + i >= 12 ? 1 : 0); return `${a}-${String(m + 1).padStart(2, "0")}`; });
+  const parMois = new Map(cles.map((k) => [k, { prevu: 0, encaisse: 0, retard: 0, aVenir: 0 }]));
+  const sansDate = { prevu: 0, nombre: 0 };
+  for (const e of echeances) {
+    const c = enCents(e.montant);
+    const k = e.datePrevue ? String(e.datePrevue).slice(0, 7) : null;
+    if (!k || !parMois.has(k)) { if (!k) { sansDate.prevu += c; sansDate.nombre++; } continue; }
+    const m = parMois.get(k);
+    m.prevu += c;
+    if (e.paye) m.encaisse += c; else if (jour && e.datePrevue < jour) m.retard += c; else m.aVenir += c;
+  }
+  const garde = cles.filter((k, i) => i < 10 || parMois.get(k).prevu > 0); // septembre → juin toujours ; juillet / août si utiles
+  const derniere = garde.length ? garde[garde.length - 1] : cles[9];
+  const mois = cles.filter((k) => k <= derniere).map((k) => {
+    const m = parMois.get(k), n = Number(k.slice(5, 7)) - 1;
+    return { cle: k, court: MOIS_COURTS[n], long: `${MOIS_LONGS[n]} ${k.slice(0, 4)}`, prevu: enEuros(m.prevu), encaisse: enEuros(m.encaisse), retard: enEuros(m.retard), aVenir: enEuros(m.aVenir), enCours: !!jour && String(jour).slice(0, 7) === k };
+  });
+  // Position du jour dans l'axe (0 = début de septembre, 1 = fin du dernier mois), null hors saison
+  let aujourdhuiPos = null;
+  const iJour = mois.findIndex((m) => m.enCours);
+  if (iJour >= 0) { const j = Number(String(jour).slice(8, 10)) || 1; aujourdhuiPos = (iJour + (j - 0.5) / 31) / mois.length; }
+  const cumul = []; let total = 0;
+  for (const m of mois) { if (jour && m.cle > String(jour).slice(0, 7)) break; total += enCents(m.encaisse); cumul.push(enEuros(total)); } // encaissé cumulé jusqu'au mois en cours
+  return { mois, max: Math.max(0, ...mois.map((m) => m.prevu)), sansDate: { prevu: enEuros(sansDate.prevu), nombre: sansDate.nombre }, aujourdhuiPos, encaisseCumule: cumul };
+}
+
+// Conversion d'après l'ÉTAPE ACTUELLE de chaque fiche (hors archivées) : une fiche en « Négociation » est
+// passée par Prospect, Contacté, RDV et Proposition. Les fiches « Perdu » ne comptent qu'au premier palier
+// (on ne sait pas jusqu'où elles sont allées). Taux de transformation = signés ÷ (signés + perdus).
+export function calculerConversion(partenaires = []) {
+  const paliers = ["Prospect", "Contacté", "RDV", "Proposition", "Négociation", "Signé"];
+  const actives = partenaires.filter((p) => p.etape !== "Archivé");
+  const total = actives.length;
+  const etapes = paliers.map((nom, i) => {
+    const n = actives.filter((p) => (p.etape === "Perdu" ? i === 0 : paliers.indexOf(p.etape) >= i)).length;
+    return { nom, nombre: n, pct: total ? Math.round((n / total) * 100) : 0 };
+  });
+  const signes = actives.filter((p) => p.etape === "Signé").length, perdus = actives.filter((p) => p.etape === "Perdu").length;
+  return { etapes, total, signes, perdus, taux: signes + perdus ? Math.round((signes / (signes + perdus)) * 100) : null };
+}
+
+// Signé (total validé des fiches « Signé ») par responsable, du plus grand au plus petit.
+export function signeParResponsable(partenaires = []) {
+  const m = new Map();
+  for (const p of partenaires) if (p.etape === "Signé") { const k = p.responsable || ""; m.set(k, (m.get(k) || 0) + enCents(totalValide(p))); }
+  return [...m.entries()].map(([responsable, c]) => ({ responsable, montant: enEuros(c) })).sort((a, b) => b.montant - a.montant || a.responsable.localeCompare(b.responsable, "fr"));
+}
+
+// Signatures récentes d'après le journal : passages à l'étape « Signé » (création directe comprise),
+// cumulés semaine par semaine sur les `semaines` dernières semaines. → [nombre cumulé par semaine] ou [] si le journal est muet.
+export function signaturesParSemaine(journal = [], jour = "", semaines = 8) {
+  if (!jour) return [];
+  const fin = new Date(`${jour}T23:59:59`), debut = new Date(fin.getTime() - semaines * 7 * 86400000);
+  const dates = journal.filter((j) => j.tableNom === "partenaires" && j.apres?.etape === "Signé" && (j.action === "INSERT" || (j.champs || []).includes("etape")))
+    .map((j) => new Date(j.le)).filter((d) => !Number.isNaN(d.getTime()) && d >= debut && d <= fin);
+  if (!dates.length) return [];
+  const serie = Array(semaines).fill(0);
+  for (const d of dates) serie[Math.min(semaines - 1, Math.floor((d - debut) / (7 * 86400000)))]++;
+  let c = 0; return serie.map((n) => (c += n));
 }

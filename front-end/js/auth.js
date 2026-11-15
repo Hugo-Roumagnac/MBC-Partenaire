@@ -72,7 +72,8 @@ function initMenu() {
   // Thème clair / automatique / sombre (§7)
   const boutons = menu.querySelectorAll("[data-theme-choice]");
   const majTheme = () => boutons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.themeChoice === themeActuel())));
-  boutons.forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); appliquerTheme(b.dataset.themeChoice); majTheme(); }));
+  boutons.forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); appliquerTheme(b.dataset.themeChoice); majTheme(); document.dispatchEvent(new CustomEvent("mbc:theme")); })); // v6 : prévient les autres sélecteurs (barre latérale, menu « Plus »)
+  document.addEventListener("mbc:theme", majTheme); // v6 : suit un choix fait ailleurs
   majTheme();
 }
 

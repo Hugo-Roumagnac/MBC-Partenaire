@@ -4,6 +4,7 @@
   try {
     var t = localStorage.getItem("mbc-theme"); // "light" | "dark" | null (= automatique)
     if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+    if (localStorage.getItem("mbc-sidebar") === "replie") document.documentElement.setAttribute("data-sidebar", "replie"); // v6 : barre latérale repliée
   } catch (e) { /* stockage indisponible : thème du système */ }
   // Avertit si la page est ouverte en double-cliquant le fichier (file://) : les modules JS y sont bloqués.
   if (location.protocol === "file:") {

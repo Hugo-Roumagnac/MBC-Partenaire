@@ -7,9 +7,11 @@
    3. layout     → structure de la page, onglets, panneau latéral
    4. components → cartes, tableaux, badges...
    5. screens    → styles propres à chaque écran
+   6. theme-v6   → refonte v6 (style SaaS sobre, graphiques, thème sombre)
    ========================================================================== */
 @import url("variables.css");
 @import url("base.css");
 @import url("layout.css");
 @import url("components.css");
 @import url("screens.css");
+@import url("theme-v6.css"); /* v6 : refonte visuelle (chargée en dernier) */

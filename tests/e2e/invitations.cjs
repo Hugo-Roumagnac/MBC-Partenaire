@@ -7,6 +7,7 @@ const BASE = "http://localhost:8765/";
 (async () => {
   const nav = await chromium.launch({ channel: "chrome" }).catch(() => chromium.launch());
   const ctx = await nav.newContext();
+  await ctx.route(/https:\/\/fonts\.(googleapis|gstatic)\.com\/.*/, (route) => route.fulfill({ status: 200, contentType: "text/css", body: "" })); // v6 : polices simulées
   const erreurs = [];
   const page = await ctx.newPage();
   page.on("pageerror", (e) => erreurs.push(e.message));
@@ -35,7 +36,9 @@ const BASE = "http://localhost:8765/";
   assert.ok(!stocke.includes(lien.split("token=")[1]), "le jeton ne doit pas être stocké en clair");
 
   console.log("Lien invalide → message d'erreur...");
-  const visiteur = await (await nav.newContext()).newPage();
+  const ctxV = await nav.newContext();
+  await ctxV.route(/https:\/\/fonts\.(googleapis|gstatic)\.com\/.*/, (route) => route.fulfill({ status: 200, contentType: "text/css", body: "" })); // v6 : polices simulées
+  const visiteur = await ctxV.newPage();
   visiteur.on("pageerror", (e) => erreurs.push(e.message));
   await visiteur.goto(BASE + "register.html?token=" + "A".repeat(43), { waitUntil: "networkidle" });
   await visiteur.waitForSelector("#view-invalid:not([hidden])");

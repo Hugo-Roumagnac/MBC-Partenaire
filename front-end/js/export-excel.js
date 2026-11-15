@@ -1,7 +1,7 @@
 // export-excel.js — génère le classeur Excel daté à partir du store (§4.8).
 // 6 onglets d'origine + v2 : « Répartition » (montants validés / cotisations) et « Journal » (audit).
 import { jourNumero, aujourdhui } from "./dates.js"; // conversion ISO → numéro de jour
-import { totalValide, totalDemande, formaterSiret, colonnePipeline, calculerRepartition, resumerAppareil } from "./selectors.js"; // totaux (v2 : + SIRET, ventilation, journal)
+import { totalValide, totalDemande, formaterSiret, colonnePipeline, calculerRepartition, resumerAppareil, categorieEcheance } from "./selectors.js"; // totaux (v2 : + SIRET, ventilation, journal)
 import { showToast } from "./utils.js"; // message
 import { LIBELLES_TABLES } from "./journal.js"; // v2 : « Fiche », « Échéance »… au lieu des noms techniques
 
@@ -49,8 +49,8 @@ export async function exporterExcel(store) {
     raw.contacts.slice().sort(parNom).map((c) => [nom.get(c.partenaireId) || "?", c.nom || "", c.fonction || "", c.email || "", c.tel || ""])), "Contacts"); // une ligne par contact
 
   // 3) ÉCHÉANCIER (toutes saisons)
-  XLSX.utils.book_append_sheet(wb, feuille(XLSX, ["Partenaire", "Saison", "Date prévue", "Montant", "Payé", "Note"],
-    raw.echeances.slice().sort(parNom).map((e) => [nom.get(e.partenaireId) || "?", e.saison || "", date(e.datePrevue), euro(e.montant), oui(e.paye), e.note || ""])), "Échéancier"); // une ligne par échéance
+  XLSX.utils.book_append_sheet(wb, feuille(XLSX, ["Partenaire", "Saison", "Date prévue", "Montant", "Payé", "Étiquette", "Note"],
+    raw.echeances.slice().sort(parNom).map((e) => [nom.get(e.partenaireId) || "?", e.saison || "", date(e.datePrevue), euro(e.montant), oui(e.paye), categorieEcheance(e), e.note || ""])), "Échéancier"); // une ligne par échéance (v6 : + étiquette)
 
   // 4) CONTREPARTIES (toutes saisons)
   XLSX.utils.book_append_sheet(wb, feuille(XLSX, ["Partenaire", "Saison", "Contrepartie", "Livrée"],
@@ -66,13 +66,15 @@ export async function exporterExcel(store) {
   XLSX.utils.book_append_sheet(wb, feuille(XLSX, ["Partenaire", "Date", "Auteur", "Échange", "Automatique"],
     raw.echanges.slice().sort((a, b) => String(b.date).localeCompare(String(a.date))).map((x) => [nom.get(x.partenaireId) || "?", date(x.date), x.auteur || "", x.texte || "", oui(x.auto)])), "Historique"); // une ligne par échange
 
-  // 7) v2 — RÉPARTITION : mêmes chiffres que sous « Signé » et « Encaissé » au tableau de bord
+  // 7) RÉPARTITION : mêmes chiffres qu'au tableau de bord.
+  // Signé = contrats des fiches « Signé » ; Encaissé (v6) = paiements payés additionnés selon leur étiquette.
   const rep = calculerRepartition(store.partenaires);
-  XLSX.utils.book_append_sheet(wb, feuille(XLSX, ["", "Signé", "Encaissé"],
-    [["Montants validés", euro(rep.signe.montants), euro(rep.encaisse.montants)],
+  XLSX.utils.book_append_sheet(wb, feuille(XLSX, ["", "Signé (contrats)", "Encaissé (paiements étiquetés)"],
+    [["Montants validés / Sponsoring", euro(rep.signe.montants), euro(rep.encaisse.sponsoring)],
       ["dont mécénat", euro(rep.signe.mecenat), ""],
       ["Cotisations", euro(rep.signe.cotisations), euro(rep.encaisse.cotisations)],
-      ["TOTAL", euro(rep.signe.montants + rep.signe.cotisations), euro(rep.encaisse.montants + rep.encaisse.cotisations)]]), "Répartition");
+      ["Non réparti (paiements « Non précisé »)", "", euro(rep.encaisse.nonReparti)],
+      ["TOTAL", euro(rep.signe.montants + rep.signe.cotisations), euro(rep.encaisse.total)]]), "Répartition");
 
   // 8) v2 — JOURNAL : entrées chargées (les plus récentes), avec compte et appareil
   const heure = (iso) => (iso ? { t: "n", v: new Date(iso).getTime() / 86400000 + 25569 - new Date(iso).getTimezoneOffset() / 1440, z: "dd/mm/yyyy hh:mm" } : ""); // horodatage → série Excel (heure locale)

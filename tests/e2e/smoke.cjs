@@ -11,11 +11,13 @@ const URL = BASE + "app.html";
   // Lance Chromium en réutilisant le canal Chrome local ou le binaire de test
   const navigateur = await chromium.launch({ channel: "chrome" }).catch(() => chromium.launch());
   // UN contexte partagé : deux onglets simulent deux membres connectés simultanément
-  const contexte = await navigateur.newContext({ acceptDownloads: true });
+  const contexte = await navigateur.newContext({ acceptDownloads: true, permissions: ["clipboard-read", "clipboard-write"] }); // v6 : presse-papiers (copie des e-mails)
   // Initialise la session mock dans le sessionStorage avant chargement
   await contexte.addInitScript(() => sessionStorage.setItem("mbc-user", "thomas@exemple.fr"));
   // v2 : logo.dev simulé (le test ne dépend pas d'Internet) — un logo existe pour « Harmonie… » et « Banque Test », 404 sinon
   const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAJUlEQVR4nGP8z8DwnwEJMDEwMDCgC2BXgFUSqwJ0SawKcCsAAKnOBRV0yC8dAAAAAElFTkSuQmCC", "base64");
+  // v6 : polices Google Fonts simulées (le test ne dépend pas d'Internet)
+  await contexte.route(/https:\/\/fonts\.(googleapis|gstatic)\.com\/.*/, (route) => route.fulfill({ status: 200, contentType: "text/css", body: "" }));
   await contexte.route("https://img.logo.dev/**", (route) => /name\/(Harmonie|Banque%20Test)/i.test(route.request().url()) ? route.fulfill({ status: 200, contentType: "image/png", body: PNG }) : route.fulfill({ status: 404, body: "" }));
   // Tableau de collecte des erreurs JavaScript
   const erreurs = [];
@@ -43,7 +45,9 @@ const URL = BASE + "app.html";
 
   // Ouvre le premier onglet représentant le membre A
   console.log("Page d'accueil = connexion : compte non membre refusé, membre accepté...");
-  const L = await (await navigateur.newContext()).newPage();
+  const ctxL = await navigateur.newContext();
+  await ctxL.route(/https:\/\/fonts\.(googleapis|gstatic)\.com\/.*/, (route) => route.fulfill({ status: 200, contentType: "text/css", body: "" })); // v6 : polices simulées
+  const L = await ctxL.newPage();
   L.on("pageerror", (e) => erreurs.push(e.message));
   await L.goto(BASE, { waitUntil: "networkidle" });
   await L.fill("#login-email", "inconnu@exemple.fr"); await L.fill("#login-password", "motdepasse"); await L.click("#login-submit");
@@ -162,14 +166,38 @@ const URL = BASE + "app.html";
   await B.goto(URL + "#/partenaires");
   await B.waitForSelector('tr[data-partner-id="entreprise-test-e2e"] .plogo--img img', { timeout: 4000 }); // temps réel inter-onglets
 
-  console.log("v2 — Répartition montants validés / cotisations sous Encaissé (v3 : le validé est ventilé dans « Répartition du budget »)...");
+  console.log("v6 — Encaissé réparti selon l'étiquette des paiements (Sponsoring / Cotisations / Non réparti)...");
   await A.goto(URL + "#/dashboard");
-  const euros = (t) => Number(String(t).replace(/[^0-9,]/g, "").replace(",", ".")); // « 1 200 € » → 1200
-  for (const [total, split] of [["#score-cashed", "#score-cashed-split"]]) {
-    const parts = await A.$$eval(`${split} .score__split-row strong`, (els) => els.map((e) => e.textContent));
-    assert.equal(parts.length, 2, "Deux lignes : montants validés et cotisations");
-    assert.equal(parts.reduce((t, x) => t + euros(x), 0), euros(await A.textContent(total)), `La répartition de ${total} doit retomber sur le total`);
-  }
+  const euros = (t) => Number(String(t).replace(/[^0-9,]/g, "").replace(",", ".")); // « 1 200,50 € » → 1200.5
+  const lignesEncaisse = async () => A.$$eval("#score-cashed-split .score__split-row strong", (els) => els.map((e) => e.textContent));
+  let parts = await lignesEncaisse();
+  assert.equal(parts.length, 3, "Trois lignes : Sponsoring, Cotisations, Non réparti");
+  assert.equal(Math.round(parts.reduce((t, x) => t + euros(x), 0) * 100), Math.round(euros(await A.textContent("#score-cashed")) * 100), "Les trois lignes doivent faire exactement le total encaissé");
+  // Étiqueter un paiement payé « Non précisé » en « Cotisation » depuis l'écran Paiements : la ligne Cotisations augmente d'autant
+  await A.goto(URL + "#/paiements");
+  await A.click('#screen-paiements [data-filter="encaisses"]');
+  const sel = A.locator('select[data-echeance-cat]').filter({ has: A.locator('option[selected]', { hasText: "Non précisé" }) }).first();
+  const montantLigne = euros(await sel.locator("xpath=ancestor::tr").locator('td[data-label="Montant"]').textContent());
+  await sel.selectOption("Cotisation");
+  await A.waitForSelector("#toast.toast--visible");
+  await A.click('#screen-paiements [data-filter="a-encaisser"]'); // remet le filtre par défaut pour la suite du scénario
+  await A.goto(URL + "#/dashboard");
+  const apres = await lignesEncaisse();
+  assert.equal(Math.round(euros(apres[1]) * 100), Math.round((euros(parts[1]) + montantLigne) * 100), "La ligne Cotisations doit augmenter du montant étiqueté");
+  assert.equal(Math.round(euros(apres[2]) * 100), Math.round((euros(parts[2]) - montantLigne) * 100), "La ligne Non réparti doit diminuer d'autant");
+  assert.equal(Math.round(apres.reduce((t, x) => t + euros(x), 0) * 100), Math.round(euros(await A.textContent("#score-cashed")) * 100), "Toujours exactement le total");
+  // L'étiquette est visible et modifiable dans l'échéancier de la fiche
+  await A.goto(URL + "#/dashboard?fiche=myjob");
+  await A.waitForSelector("#fiche-partenaire.is-open");
+  await A.click('#fiche-partenaire summary:has(#count-schedule)');
+  assert.ok(await A.locator('#schedule-tbody select[data-field="categorie"]').count() > 0, "Chaque échéance de la fiche porte une étiquette");
+  await A.keyboard.press("Escape");
+
+  console.log("v6 — Tableau de bord : graphiques (échéancier, pipeline, conversion)...");
+  await A.goto(URL + "#/dashboard");
+  assert.ok(await A.locator("#chart-echeancier .chart-col").count() >= 10, "Une barre par mois de septembre à juin");
+  assert.ok(await A.locator("#conversion-funnel .funnel__row").count() === 6, "Six paliers de conversion");
+  assert.ok((await A.textContent("#pipeline-stack")) !== null);
 
   console.log("v2 — Logos automatiques affichés sans aucun clic, refus possible depuis la fiche...");
   await A.goto(URL + "#/partenaires");
@@ -192,6 +220,20 @@ const URL = BASE + "app.html";
   await A.click("#form-new-partner [type=submit]");
   await A.waitForSelector("#fiche-partenaire.is-open #fiche-logo .plogo--img img");
   await A.keyboard.press("Escape");
+
+  console.log("v6 — Événements : copier les e-mails des invités...");
+  await A.goto(URL + "#/evenements");
+  await A.waitForSelector("#btn-copy-emails");
+  await A.click("#btn-copy-emails");
+  await A.waitForSelector("#modal-emails:not([hidden])");
+  const nTous = Number(await A.textContent("#emails-count"));
+  assert.ok(nTous > 0, "Des adresses sont proposées pour tous les invités");
+  await A.check('#form-emails input[name="sep"][value=", "]');
+  assert.ok(!(await A.inputValue("#emails-apercu")).includes(";"), "Le séparateur virgule est appliqué");
+  await A.click("#emails-copier");
+  await A.waitForSelector("#toast.toast--visible");
+  assert.match(await A.textContent("#toast"), /adresses? e-mail copiées?/);
+  assert.equal(await A.isHidden("#modal-emails"), true, "La fenêtre se ferme après la copie");
 
   console.log("v5 — Événements : « À contacter », « Contacté en attente », « Oui », « Non »...");
   await A.goto(URL + "#/evenements");

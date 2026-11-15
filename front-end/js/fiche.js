@@ -1,6 +1,6 @@
 // fiche.js — contenu de la fiche partenaire (le panneau latéral lui-même est géré par drawer.js).
 import { store, ecrire, ajouter, supprimer, changerEtape, noterHistorique, assurerContrat, appliquerPlanEcheancier, auteur } from "./store.js"; // état + actions
-import { totalValide, totalDemande, cerfaAEmettre, montantParDefaut, planifierEcheancier, enCents, enEuros, statutAction } from "./selectors.js"; // règles métier
+import { totalValide, totalDemande, cerfaAEmettre, montantParDefaut, planifierEcheancier, enCents, enEuros, statutAction, CATEGORIES_ECHEANCE, categorieEcheance, categorieSlug } from "./selectors.js"; // règles métier (v6 : étiquettes des échéances)
 import { aujourdhui } from "./dates.js"; // date du jour
 import { creerDrawer } from "./drawer.js"; // mécanisme du panneau
 import { naviguer } from "./router.js"; // navigation par URL
@@ -116,14 +116,14 @@ async function surClic(e) {
         await ecrire("partenaires", v.id, { prochaineActionDate: null, prochaineActionTexte: "", modifieLe: new Date().toISOString(), modifiePar: auteur() }); // vide la prochaine action
         showToast("Action marquée comme faite"); break;
       }
-      case "add-echeance": await ajouter("echeances", { partenaireId: v.id, saison, datePrevue: null, montant: 0, paye: false, note: "" }); break; // échéance vide
+      case "add-echeance": await ajouter("echeances", { partenaireId: v.id, saison, datePrevue: null, montant: 0, paye: false, note: "", categorie: categorieEcheance({ categorie: $("g-cat")?.value }) }); break; // échéance vide (v6 : étiquette du générateur)
       case "del-echeance": await supprimer("echeances", b.dataset.id); break; // supprime l'échéance
       case "generer": { // générateur d'échéancier (§5.3)
         const montant = Number($("g-amount").value) || montantParDefaut(v); // vide → total validé − déjà payé
         const nombre = Math.floor(Number($("g-count").value)); // nombre de versements mensuels
         const premier = $("g-start").value; // date du 1er versement (ISO)
         if (!(montant > 0) || !(nombre >= 1) || !premier) { showToast("Montant, nombre et 1er versement requis"); return; } // validation
-        const plan = planifierEcheancier(v, { montant, nombre, premierVersement: premier }); // calcule (ne modifie rien)
+        const plan = planifierEcheancier(v, { montant, nombre, premierVersement: premier, categorie: $("g-cat")?.value }); // calcule (ne modifie rien) — v6 : étiquette choisie
         await appliquerPlanEcheancier(v.id, plan); // insère puis supprime les non payées
         $("g-amount").value = "";
         showToast(`${plan.aCreer.length} échéances générées`); break;
@@ -260,7 +260,7 @@ export function renderFiche(forcer = false) {
   if ($("section-journal").open) majListe($("fiche-journal"), journalFicheHtml(v.id), forcer); // calculé seulement si la section est ouverte
 
   // Listes générées (pas redessinées pendant une saisie, sauf forcer)
-  majListe($("schedule-tbody"), v.echeances.length ? v.echeances.slice().sort((a, b) => String(a.datePrevue || "9999").localeCompare(String(b.datePrevue || "9999"))).map((e) => htmlEcheance(e, jour)).join("") : `<tr><td colspan="5" class="empty-cell">Aucune échéance. Utilisez le générateur ci-dessous.</td></tr>`, forcer);
+  majListe($("schedule-tbody"), v.echeances.length ? v.echeances.slice().sort((a, b) => String(a.datePrevue || "9999").localeCompare(String(b.datePrevue || "9999"))).map((e) => htmlEcheance(e, jour)).join("") : `<tr><td colspan="6" class="empty-cell">Aucune échéance. Utilisez le générateur ci-dessous.</td></tr>`, forcer);
   majListe($("counterparts-list"), v.contreparties.map(htmlContrepartie).join("") || '<li class="faint" style="font-size: var(--text-sm)">Aucune contrepartie.</li>', forcer);
   majListe($("contacts-list"), v.contacts.map(htmlContact).join("") || '<p class="faint" style="font-size: var(--text-sm); margin-bottom: var(--space-3)">Aucun contact.</p>', forcer);
   majListe($("history-list"), v.echanges.map((x) => `<div class="timeline__item ${x.auto ? "timeline__item--auto" : ""}"><div class="timeline__text">${escapeHtml(x.texte)}</div><div class="timeline__meta">${formatDate(x.date)} · ${escapeHtml(x.auteur || "?")}</div></div>`).join("") || '<p class="faint" style="font-size: var(--text-sm)">Aucun échange.</p>', forcer);
@@ -304,6 +304,7 @@ const htmlEcheance = (e, jour) => `<tr class="${!e.paye && e.datePrevue && e.dat
   <td><input type="checkbox" ${attrs("echeances", e.id, "paye")} ${e.paye ? "checked" : ""} aria-label="Payé"></td>
   <td><input type="date" ${attrs("echeances", e.id, "datePrevue")} value="${escapeHtml(e.datePrevue || "")}" aria-label="Date prévue"></td>
   <td class="num"><input type="number" min="0" step="0.01" ${attrs("echeances", e.id, "montant")} value="${Number(e.montant) || 0}" aria-label="Montant" style="max-width:100px; text-align:right"></td>
+  <td><select ${attrs("echeances", e.id, "categorie")} class="cat-select cat-select--${categorieSlug(e)}" aria-label="Étiquette du paiement">${CATEGORIES_ECHEANCE.map((c) => `<option ${c === categorieEcheance(e) ? "selected" : ""}>${c}</option>`).join("")}</select></td>
   <td><input type="text" ${attrs("echeances", e.id, "note")} value="${escapeHtml(e.note || "")}" placeholder="Chèque, virement…" aria-label="Note"></td>
   <td><button type="button" class="btn btn--ghost btn--icon btn--small" data-action="del-echeance" data-id="${escapeHtml(e.id)}" aria-label="Supprimer l'échéance" title="Supprimer">${icon("x", "icon--sm")}</button></td>
 </tr>`;

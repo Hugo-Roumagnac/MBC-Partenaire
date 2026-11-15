@@ -1,7 +1,7 @@
 // store.js — état en mémoire + abonnement temps réel. Seule source de vérité des écrans.
 import * as api from "./api.js"; // couche d'accès aux données
 import { aujourdhui } from "./dates.js"; // date du jour (ISO local)
-import { COTISATION_PAR_DEFAUT, enEuros, enCents, estSolde, normaliserPresence, aContacterParPartenaire } from "./selectors.js"; // constantes, conversions et règles (v3 : + statut « Contacter »)
+import { COTISATION_PAR_DEFAUT, enEuros, enCents, estSolde, normaliserPresence, aContacterParPartenaire, categorieEcheance } from "./selectors.js"; // constantes, conversions et règles (v3 : + statut « Contacter »)
 import { slugify } from "./utils.js"; // identifiant lisible à partir d'un nom
 
 const vide = () => Object.fromEntries(api.TABLES.map((t) => [t, []])); // { partenaires: [], contrats: [], ... }
@@ -28,6 +28,7 @@ function reconstruire() {
   const { saisonEnCours: N, saisonPrecedente: P } = store.reglages; // saison courante et précédente
   const grouper = (lignes) => { const m = new Map(); for (const l of lignes) { (m.get(l.partenaireId) || m.set(l.partenaireId, []).get(l.partenaireId)).push(l); } return m; }; // regroupe par partenaire
   raw.presences.forEach((x) => { x.presence = normaliserPresence(x.presence); }); // v4 : « En attente », « Contacter », « Contact à rajouter » → « Contacté en attente »
+  raw.echeances.forEach((e) => { e.categorie = categorieEcheance(e); }); // v6 : étiquette absente ou inconnue → « Non précisé »
   const documents = grouper(raw.documents || []); // v3 : documents par partenaire
   const contrats = grouper(raw.contrats), echeances = grouper(raw.echeances.filter((e) => e.saison === N)), cps = grouper(raw.contreparties.filter((c) => c.saison === N)), contacts = grouper(raw.contacts), echanges = grouper(raw.echanges); // index par partenaire
 

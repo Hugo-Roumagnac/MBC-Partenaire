@@ -11,7 +11,20 @@
 
 Invitations : menu du compte → **Inviter un membre**. Mise en service (table, Edge Function, e-mails, variables d'environnement) : [`supabase/README-invitations.md`](./supabase/README-invitations.md).
 
-Écrans : `app.html#/dashboard`, `#/pipeline`, `#/partenaires`, `#/paiements`, `#/evenements`, `#/journal` (v2) ; fiche : `?fiche=<id>` (ex. `#/partenaires?fiche=myjob`).
+Écrans : `app.html#/dashboard`, `#/pipeline`, `#/partenaires`, `#/paiements`, `#/evenements`, `#/journal` (v2), `#/reglages` (v6) ; fiche : `?fiche=<id>` (ex. `#/partenaires?fiche=myjob`).
+
+### Nouveautés v6
+
+| Sujet | Où | Détail |
+|---|---|---|
+| **Base de données** | `supabase/migration-v6.sql` | Colonne `echeances.categorie` (« Sponsoring », « Cotisation », « Non précisé » par défaut). **À lancer avant de déployer le front v6.** |
+| Étiquette des paiements | fiche › Échéancier, écran Paiements, générateur | Choisie à la création, modifiable à tout moment. |
+| Encaissé exact | `selectors.calculerRepartition` / `calculerEncaisseParCategorie` | Sponsoring + Cotisations + Non réparti = total encaissé, au centime près. Plus de calcul au prorata. |
+| Copier les e-mails | écran Événements (`evenements.js`) | Tous les invités, seulement « Oui » ou sans réponse ; séparateur `;` ou `,`. |
+| Graphiques | `charts.js` (dessin), `selectors.js` (calculs) | Échéancier de la saison, pipeline empilé, conversion, signé par responsable, courbes de tendance. |
+| Refonte visuelle | `front-end/css/theme-v6.css` (chargé en dernier), `variables.css` | Thèmes clair / sombre, Plus Jakarta Sans + JetBrains Mono (Google Fonts, autorisé dans la CSP de `netlify.toml`). |
+| Interface | `interface.js` | Barre latérale repliable (`localStorage` « mbc-sidebar »), sélecteur de thème (« mbc-theme »), menu « Plus » sur mobile. |
+| Réglages du club | `#/reglages` | Déplacés depuis le tableau de bord (mêmes champs, même enregistrement). |
 
 Tester en local : `python3 -m http.server 8765` dans le dossier, puis http://localhost:8765/ (ouvrir le fichier en double-cliquant ne marche pas : le navigateur bloque les modules JavaScript).
 

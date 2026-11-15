@@ -1,5 +1,5 @@
 // partenaires.js — écran « Partenaires » (§4.4) : recherche plein texte, filtres, tri, création.
-import { store, creerPartenaire } from "./store.js";
+import { store, creerPartenaire, ecrire, noterHistorique, auteur } from "./store.js"; // v6 : + « Action faite » depuis la liste
 import { ficheHref, naviguer } from "./router.js";
 import { ETAPES_NEGOCIATION, totalValide } from "./selectors.js";
 import { formatEuro, formatDate, dueClass, stageSlug, montantAffiche, montantMeta, escapeHtml, showToast, remplirResponsables, badgeAContacter } from "./utils.js";
@@ -74,6 +74,8 @@ export function initPartenaires() {
   $("partners-tbody")?.addEventListener("click", (e) => {
     const b = e.target.closest("[data-siret]"); // v2 : bouton SIRET de la ligne → fenêtre dédiée (sans ouvrir la fiche)
     if (b) { ouvrirSiret(b.dataset.siret); return; }
+    const fait = e.target.closest("[data-action-faite]"); // v6 : action rapide au survol, même effet que « Marquer comme faite » dans la fiche
+    if (fait) { marquerActionFaite(fait.dataset.actionFaite, fait); return; }
     if (e.target.closest("a")) return;
     const tr = e.target.closest("tr[data-partner-id]");
     if (tr) naviguer({ ficheId: tr.dataset.partnerId });
@@ -175,7 +177,7 @@ export function renderTable() {
   if (count) count.textContent = `${rows.length} fiche${rows.length > 1 ? "s" : ""} affichée${rows.length > 1 ? "s" : ""} sur ${store.partenaires.length}`;
 
   if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="8" class="empty-cell">Aucun partenaire ne correspond à ces critères.${query ? ` <a href="#" data-quick="new-partner">Créer « ${escapeHtml(document.getElementById("partner-search").value.trim())} »</a>` : ""}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" class="empty-cell">Aucun partenaire ne correspond à ces critères.${query ? ` <a href="#" data-quick="new-partner">Créer « ${escapeHtml(document.getElementById("partner-search").value.trim())} »</a>` : ""}</td></tr>`;
     return;
   }
 
@@ -207,6 +209,19 @@ export function renderTable() {
         <td data-label="Encaissé / prévu">${encaisse}</td>
         <td data-label="Contreparties">${cp}</td>
         <td data-label="Prochaine action">${action}</td>
+        <td class="row-actions"><span class="row-actions__inner">${p.prochaineActionTexte || p.prochaineActionDate ? `<button type="button" class="btn btn--small" data-action-faite="${escapeHtml(p.id)}" title="Ajoute l'action à l'historique et la retire de la fiche">${icon("check", "icon--sm")}Fait</button>` : ""}<a class="btn btn--small btn--ghost" href="${ficheHref(p.id)}" aria-label="Ouvrir la fiche de ${escapeHtml(p.nom)}">Ouvrir</a></span></td>
       </tr>`;
   }).join("");
+}
+
+// v6 : « Fait » depuis la liste — identique au bouton « Marquer comme faite » de la fiche :
+// l'action est ajoutée à l'historique, puis la prochaine action est vidée.
+async function marquerActionFaite(id, bouton) {
+  const p = store.partenaires.find((x) => x.id === id); if (!p) return;
+  bouton.disabled = true;
+  try {
+    await noterHistorique(p.id, `Action faite : ${p.prochaineActionTexte || "(sans libellé)"}`, { auto: true });
+    await ecrire("partenaires", p.id, { prochaineActionDate: null, prochaineActionTexte: "", modifieLe: new Date().toISOString(), modifiePar: auteur() });
+    showToast("Action marquée comme faite");
+  } catch (err) { console.error(err); showToast("Échec de l'enregistrement"); bouton.disabled = false; }
 }
