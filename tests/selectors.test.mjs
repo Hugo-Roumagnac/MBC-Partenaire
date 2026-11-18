@@ -235,8 +235,28 @@ test("v7 — numéros des invités : filtres, doublons (+33 = 0), champs vides i
     { id: "e", nom: "Echo" } // aucun contact
   ];
   const evt = { presences: [{ partenaireId: "a", presence: "Oui" }, { partenaireId: "b", presence: "Contacté en attente" }, { partenaireId: "c", presence: "Oui" }, { partenaireId: "d", presence: "Non" }, { partenaireId: "e", presence: "À contacter" }, { partenaireId: "zz", presence: "Oui" }] };
-  assert.deepEqual(telephonesInvites(evt, partenaires, "tous"), { numeros: ["06 12 34 56 78", "05 56 00 11 22", "07 00 00 00 01"], sansTel: ["Charlie", "Echo"], partenaires: 5 });
-  assert.deepEqual(telephonesInvites(evt, partenaires, "oui"), { numeros: ["06 12 34 56 78", "05 56 00 11 22"], sansTel: ["Charlie"], partenaires: 2 });
-  assert.deepEqual(telephonesInvites(evt, partenaires, "attente"), { numeros: ["+33 6 12 34 56 78"], sansTel: ["Echo"], partenaires: 2 });
+  const essentiel = ({ numeros, sansTel, partenaires: n }) => ({ numeros, sansTel, partenaires: n });
+  assert.deepEqual(essentiel(telephonesInvites(evt, partenaires, "tous")), { numeros: ["06 12 34 56 78", "05 56 00 11 22", "07 00 00 00 01"], sansTel: ["Charlie", "Echo"], partenaires: 5 });
+  assert.deepEqual(essentiel(telephonesInvites(evt, partenaires, "oui")), { numeros: ["06 12 34 56 78", "05 56 00 11 22"], sansTel: ["Charlie"], partenaires: 2 });
+  assert.deepEqual(essentiel(telephonesInvites(evt, partenaires, "attente")), { numeros: ["+33 6 12 34 56 78"], sansTel: ["Echo"], partenaires: 2 });
+  // v8 : nom du sponsor à côté de chaque numéro (numéro partagé → les deux sponsors)
+  assert.deepEqual(telephonesInvites(evt, partenaires, "tous").annotes, ["06 12 34 56 78 (Alpha / Bravo)", "05 56 00 11 22 (Alpha)", "07 00 00 00 01 (Delta)"]);
+  assert.deepEqual(telephonesInvites(evt, partenaires, "attente").annotes, ["+33 6 12 34 56 78 (Bravo)"]);
   assert.deepEqual(telephonesInvites({ presences: [] }, partenaires).numeros, []);
+});
+
+test("v8 — participants en badges : lecture rétrocompatible (+ , ; retour ligne), écriture « A + B », compteur suivi", async () => {
+  const { listeParticipants, texteParticipants, personnesApres } = await import("../front-end/js/selectors.js");
+  assert.deepEqual(listeParticipants("Luis MANSO + Benoît"), ["Luis MANSO", "Benoît"]);
+  assert.deepEqual(listeParticipants("Jérôme Costes, Amandine ; Paul\nZoé"), ["Jérôme Costes", "Amandine", "Paul", "Zoé"]);
+  assert.deepEqual(listeParticipants("  Jean   Dupont +  + jean dupont "), ["Jean Dupont"]); // vides et doublons retirés
+  assert.deepEqual(listeParticipants(""), []);
+  assert.deepEqual(listeParticipants(null), []);
+  assert.equal(texteParticipants(["Lucas Moreau", "M. S"]), "Lucas Moreau + M. S");
+  assert.equal(texteParticipants([]), "");
+  assert.equal(personnesApres(0, 0, 1), 1); // premier nom → 1 personne
+  assert.equal(personnesApres(2, 2, 3), 3); // compteur qui suivait → suit
+  assert.equal(personnesApres(5, 1, 2), 5); // 5 personnes dont 2 nommées → inchangé
+  assert.equal(personnesApres(3, 3, 2), 2); // retrait quand le compteur suivait les noms
+  assert.equal(personnesApres(5, 2, 1), 5); // retrait sans toucher un compteur plus grand
 });

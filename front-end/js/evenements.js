@@ -4,7 +4,7 @@ import { ficheHref } from "./router.js";
 import { formatDate, escapeHtml, showToast, slugify } from "./utils.js";
 import { aujourdhui } from "./dates.js";
 import { ouvrirModale, fermerModale } from "./modal.js";
-import { PRESENCES, PRESENCE_CONTACT, PRESENCE_ATTENTE, emailsInvites, telephonesInvites } from "./selectors.js"; // v5 : « À contacter », « Contacté en attente », « Oui », « Non »
+import { PRESENCES, PRESENCE_CONTACT, PRESENCE_ATTENTE, emailsInvites, telephonesInvites, listeParticipants, texteParticipants, personnesApres } from "./selectors.js"; // v5 : « À contacter », « Contacté en attente », « Oui », « Non »
 import { ouvrirNouveauContact } from "./contacts.js"; // v2 : fenêtre « Nouveau contact »
 import { icon } from "./icons.js"; // v2 : icône du bouton « Ajouter le contact »
 
@@ -93,24 +93,32 @@ export function initEvenements() {
     const el = e.target.closest("[data-field]"); if (!el) return;
     const id = el.closest("tr")?.dataset.presenceId; if (!id) return;
     const champ = el.dataset.field;
-    const valeur = champ === "personnes" ? Math.max(0, Math.floor(Number(el.value) || 0)) : champ === "noms" ? el.value.replace(/\s*\n+\s*/g, " ").trim() : el.value; // v7 : noms sur une ligne (collage multi-lignes)
-    if (champ === "noms") { el.value = valeur; el.title = valeur; ajusterHauteur(el); }
+    const valeur = champ === "personnes" ? Math.max(0, Math.floor(Number(el.value) || 0)) : el.value;
     const patch = { [champ]: valeur };
-    if (champ === "presence" && valeur === "Oui") { // « Oui » sans nombre → 1 personne par défaut
+    if (champ === "presence" && valeur === "Oui") { // « Oui » sans nombre → 1 personne par défaut (v8 : au moins le nombre de participants nommés)
       const row = store.raw.presences.find((x) => x.id === id);
-      if (row && !(Number(row.personnes) > 0)) patch.personnes = 1;
+      if (row && !(Number(row.personnes) > 0)) patch.personnes = Math.max(1, listeParticipants(row.noms).length);
     }
     try { await ecrire("presences", id, patch); showToast(champ === "presence" && valeur === PRESENCE_CONTACT ? "Statut « À contacter » enregistré : visible sur la fiche et dans le pipeline" : "Présence enregistrée"); } // v3 : sauvegarde immédiate
     catch (err) { console.error(err); showToast("Échec de l'enregistrement", { erreur: true }); }
   });
-  // v7 — Noms des participants : hauteur ajustée pendant la saisie, Entrée valide (pas de saut de ligne enregistré)
-  tbody?.addEventListener("input", (e) => { if (e.target.matches("textarea[data-field='noms']")) ajusterHauteur(e.target); });
-  tbody?.addEventListener("focusin", (e) => { if (e.target.matches("textarea[data-field='noms']")) ajusterHauteur(e.target); });
+  // v8 — Participants en badges : Entrée ou « + » ajoute, « × » retire, un nom tapé puis abandonné est ajouté en quittant le champ
   tbody?.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.isComposing && e.target.matches("textarea[data-field='noms']")) { e.preventDefault(); e.target.blur(); }
+    const champ = e.target.closest("[data-participant-input]"); if (!champ) return;
+    if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); ajouterParticipants(champ); }
+    else if (e.key === "Escape") { champ.value = ""; }
+    else if (e.key === "Backspace" && !champ.value) { // champ vide : Retour arrière retire le dernier badge
+      const dernier = [...champ.closest("tr").querySelectorAll("[data-remove-participant]")].pop();
+      if (dernier) { e.preventDefault(); retirerParticipant(dernier); }
+    }
   });
-  let resizeT; addEventListener("resize", () => { clearTimeout(resizeT); resizeT = setTimeout(() => ajusterNoms(), 120); });
+  tbody?.addEventListener("focusout", (e) => { const champ = e.target.closest("[data-participant-input]"); if (champ?.value.trim()) ajouterParticipants(champ, { garderFocus: false }); });
+  tbody?.addEventListener("pointerdown", (e) => { if (e.target.closest("[data-add-participant], [data-remove-participant]")) e.preventDefault(); }); // garde le focus dans la saisie
   tbody?.addEventListener("click", async (e) => {
+    const plus = e.target.closest("[data-add-participant]");
+    if (plus) { const champ = plus.closest("tr").querySelector("[data-participant-input]"); if (champ.value.trim()) ajouterParticipants(champ); else champ.focus(); return; }
+    const moins = e.target.closest("[data-remove-participant]");
+    if (moins) { retirerParticipant(moins); return; }
     const c = e.target.closest("[data-contact-presence]"); // fenêtre « Nouveau contact » (facultatif)
     if (c) { ouvrirContactPresence(c.dataset.contactPresence); return; }
     const b = e.target.closest("[data-remove-guest]"); if (!b) return;
@@ -202,23 +210,66 @@ function renderAttendance(evt) {
         <td class="td--main">${p ? `<a class="link-fiche" href="${ficheHref(p.id)}">${escapeHtml(name)}</a>` : escapeHtml(name)} <span class="badge badge--${ton}" style="margin-left:4px">${escapeHtml(row.presence)}</span>${row.presence === PRESENCE_CONTACT && p ? ` <button type="button" class="btn btn--small btn--ghost" data-contact-presence="${escapeHtml(row.id)}">${icon("plus", "icon--sm")}Ajouter le contact</button>` : ""}</td>
         <td data-label="Présence"><select class="input--sm" data-field="presence" aria-label="Présence de ${escapeHtml(name)}">${PRESENCES.map((v) => `<option ${v === row.presence ? "selected" : ""}>${v}</option>`).join("")}</select></td>
         <td data-label="Personnes" class="num"><input class="input--sm" data-field="personnes" type="number" min="0" value="${Number(row.personnes) || 0}" aria-label="Nombre de personnes, ${escapeHtml(name)}" style="max-width:76px"></td>
-        <td data-label="Noms" class="td--noms"><textarea class="input--sm noms-participants" data-field="noms" rows="1" placeholder="Noms des participants" aria-label="Noms des participants, ${escapeHtml(name)}"${row.noms ? ` title="${escapeHtml(row.noms)}"` : ""}>${escapeHtml(row.noms || "")}</textarea></td>
+        <td data-label="Noms" class="td--noms">
+          <div class="participants">
+            <ul class="participants__list" aria-label="Participants, ${escapeHtml(name)}">${badgesParticipants(row.noms)}</ul>
+            <div class="participants__add">
+              <input class="input--sm" type="text" data-participant-input placeholder="Ajouter un participant..." aria-label="Ajouter un participant, ${escapeHtml(name)}" autocomplete="off" enterkeyhint="done">
+              <button type="button" class="btn btn--ghost btn--icon btn--small" data-add-participant aria-label="Ajouter le participant" title="Ajouter (Entrée)">${icon("plus", "icon--sm")}</button>
+            </div>
+          </div>
+        </td>
         <td class="td--retirer"><button type="button" class="btn btn--ghost btn--icon btn--small" data-remove-guest="${escapeHtml(row.id)}" aria-label="Retirer ${escapeHtml(name)}" title="Retirer"><svg class="icon icon--sm"><use href="#i-x"/></svg></button></td>
       </tr>`;
   }).join("");
-  ajusterNoms(tbody);
 }
 
-// v7 — « Noms des participants » : zone de texte qui s'agrandit avec son contenu (retour à la ligne automatique),
-// pour que tous les noms restent lisibles. CSS `field-sizing: content` quand le navigateur le gère, sinon calcul ici.
-const FIELD_SIZING = typeof CSS !== "undefined" && CSS.supports?.("field-sizing", "content");
-function ajusterHauteur(t) {
-  if (FIELD_SIZING || !t || !t.offsetParent) return; // écran masqué : on refera le calcul à l'affichage / au focus
-  t.style.height = "auto";
-  t.style.height = `${t.scrollHeight + (t.offsetHeight - t.clientHeight)}px`;
+// =============================================================================
+// v8 — PARTICIPANTS EN BADGES
+// =============================================================================
+// En base, « noms » reste une chaîne « Nom 1 + Nom 2 » (lue aussi avec « , » « ; » ou retours à la ligne :
+// voir selectors.js › listeParticipants). Le compteur « Personnes » suit le nombre de noms (personnesApres).
+// L'écriture est optimiste : la ligne est mise à jour tout de suite (le rendu global est suspendu pendant
+// la saisie pour ne pas voler le focus), puis remise d'aplomb si Supabase refuse.
+function badgesParticipants(noms) {
+  return listeParticipants(noms).map((n, i) => `<li class="participant"><span class="participant__nom" title="${escapeHtml(n)}">${escapeHtml(n)}</span><button type="button" class="participant__x" data-remove-participant="${i}" aria-label="Retirer ${escapeHtml(n)}" title="Retirer">${icon("x", "icon--xs")}</button></li>`).join("");
 }
-function ajusterNoms(racine = $("attendance-tbody")) {
-  racine?.querySelectorAll("textarea[data-field='noms']").forEach(ajusterHauteur);
+
+function majLigneParticipants(tr) {
+  const row = store.raw.presences.find((x) => x.id === tr?.dataset.presenceId); if (!row) return;
+  const liste = tr.querySelector(".participants__list"); if (liste) liste.innerHTML = badgesParticipants(row.noms);
+  const pers = tr.querySelector("[data-field=personnes]"); if (pers && document.activeElement !== pers) pers.value = Number(row.personnes) || 0;
+}
+
+async function enregistrerParticipants(tr, nouvelle, message) {
+  const id = tr?.dataset.presenceId, row = store.raw.presences.find((x) => x.id === id); if (!row) return;
+  const avant = listeParticipants(row.noms).length;
+  const noms = texteParticipants(nouvelle);
+  if (noms === texteParticipants(listeParticipants(row.noms))) return; // rien de nouveau (doublon)
+  const patch = { noms };
+  const personnes = personnesApres(row.personnes, avant, listeParticipants(noms).length);
+  if (personnes !== (Number(row.personnes) || 0)) patch.personnes = personnes;
+  const ecriture = ecrire("presences", id, patch); // met à jour le store tout de suite
+  majLigneParticipants(tr);
+  try { await ecriture; showToast(message); }
+  catch (err) { console.error(err); majLigneParticipants(tr); showToast("Échec de l'enregistrement", { erreur: true }); }
+}
+
+function ajouterParticipants(champ, { garderFocus = true } = {}) {
+  const tr = champ.closest("tr"), row = store.raw.presences.find((x) => x.id === tr?.dataset.presenceId);
+  const nouveaux = listeParticipants(champ.value); // « Jean + Marie » ou « Jean, Marie » → 2 badges
+  champ.value = "";
+  if (!row || !nouveaux.length) return;
+  if (garderFocus) champ.focus();
+  enregistrerParticipants(tr, [...listeParticipants(row.noms), ...nouveaux], nouveaux.length > 1 ? `${nouveaux.length} participants ajoutés` : "Participant ajouté");
+}
+
+function retirerParticipant(bouton) {
+  const tr = bouton.closest("tr"), row = store.raw.presences.find((x) => x.id === tr?.dataset.presenceId); if (!row) return;
+  const liste = listeParticipants(row.noms), i = Number(bouton.dataset.removeParticipant);
+  if (!(i in liste)) return;
+  liste.splice(i, 1);
+  enregistrerParticipants(tr, liste, "Participant retiré");
 }
 
 function fillGuestSelect(evt) {
@@ -289,10 +340,14 @@ const SEPARATEURS_NUMEROS = { virgule: ", ", "point-virgule": "; ", ligne: "\n" 
 function initCopieNumeros() {
   initCopieListe({
     bouton: "btn-copy-phones", modal: "modal-phones", form: "form-phones", prefixe: "phones", sepDefaut: ", ", separateurs: SEPARATEURS_NUMEROS,
-    calcul: (evt, cle) => { const r = telephonesInvites(evt, store.partenaires, cle); return { valeurs: r.numeros, manquants: r.sansTel, partenaires: r.partenaires }; },
+    // v8 : l'aperçu montre toujours « numéro (sponsor) » ; la copie donne les numéros seuls, sauf si la case
+    // « Inclure le nom du sponsor lors de la copie » est cochée (décochée à chaque ouverture)
+    calcul: (evt, cle) => { const r = telephonesInvites(evt, store.partenaires, cle); return { valeurs: r.numeros, apercu: r.annotes, annotes: r.annotes, manquants: r.sansTel, partenaires: r.partenaires }; },
+    aCopier: (r, form) => form.avecNoms?.checked ? r.annotes : r.valeurs,
+    reinitialiser: (form) => { if (form.avecNoms) form.avecNoms.checked = false; },
     libelleBouton: (n) => n ? `Copier ${pluriel(n, "numéro")}` : "Aucun numéro à copier",
     alerte: (noms) => `Sans numéro de téléphone (${noms.length}) : ${noms.join(", ")}. Ajoutez un contact dans leur fiche.`,
-    toast: (n) => `${pluriel(n, "numéro")} de téléphone copié${n > 1 ? "s" : ""}`
+    toast: (n, form) => `${pluriel(n, "numéro")} de téléphone copié${n > 1 ? "s" : ""}${form.avecNoms?.checked ? " (avec le nom du sponsor)" : ""}`
   });
 }
 
@@ -302,12 +357,14 @@ function initCopieListe(c) {
   if (!modal || !form) return;
   const el = (suffixe) => $(`${c.prefixe}-${suffixe}`);
   const separateur = () => { const v = form.sep.value; return c.separateurs ? (c.separateurs[v] ?? c.sepDefaut) : (v || c.sepDefaut); };
+  let texteACopier = ""; // v8 : peut différer de l'aperçu (numéros seuls / annotés)
   const majApercu = () => {
     const evt = selectedEvent(); if (!evt) return;
     const qui = form.qui.value || "tous";
     for (const cle of ["tous", "oui", "attente"]) { const n = form.querySelector(`[data-n="${cle}"]`); if (n) n.textContent = `(${c.calcul(evt, cle).partenaires})`; }
     const r = c.calcul(evt, qui);
-    el("apercu").value = r.valeurs.join(separateur());
+    el("apercu").value = (r.apercu || r.valeurs).join(separateur());
+    texteACopier = (c.aCopier ? c.aCopier(r, form) : r.valeurs).join(separateur());
     el("count").textContent = String(r.valeurs.length);
     const bouton = el("copier"); bouton.disabled = !r.valeurs.length;
     bouton.querySelector("span").textContent = c.libelleBouton(r.valeurs.length);
@@ -320,15 +377,16 @@ function initCopieListe(c) {
     if (!(evt.presences || []).length) { showToast("Aucun partenaire invité à cet événement"); return; }
     el("evenement").textContent = `${evt.nom} · ${formatDate(evt.date)}`;
     form.qui.value = "tous";
+    c.reinitialiser?.(form);
     majApercu();
     ouvrirModale(modal);
   });
   form.addEventListener("change", majApercu);
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const texte = el("apercu").value, n = Number(el("count").textContent) || 0;
+    const n = Number(el("count").textContent) || 0;
     if (!n) return;
-    if (await copier(texte, el("apercu"))) { fermerModale(modal); showToast(c.toast(n)); }
+    if (await copier(texteACopier, el("apercu"))) { fermerModale(modal); showToast(c.toast(n, form)); }
     else showToast("Copie impossible : sélectionnez le texte et copiez-le à la main", { erreur: true });
   });
 }
@@ -336,5 +394,10 @@ function initCopieListe(c) {
 // Presse-papiers : API moderne, sinon sélection + commande « copier » (anciens navigateurs, contexte non sécurisé).
 async function copier(texte, champ) {
   try { await navigator.clipboard.writeText(texte); return true; } catch { /* repli ci-dessous */ }
-  try { champ.focus(); champ.select(); return document.execCommand("copy"); } catch { return false; }
+  try { // v8 : le texte copié peut différer de l'aperçu → zone temporaire, dans la modale (focus piégé)
+    const tmp = document.createElement("textarea");
+    tmp.value = texte; tmp.setAttribute("readonly", ""); tmp.style.cssText = "position:absolute;left:-9999px;top:0;opacity:0";
+    champ.parentNode.appendChild(tmp); tmp.focus(); tmp.select();
+    const ok = document.execCommand("copy"); tmp.remove(); champ.focus(); return ok;
+  } catch { return false; }
 }

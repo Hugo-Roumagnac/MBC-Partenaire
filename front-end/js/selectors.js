@@ -398,14 +398,45 @@ export function telephonesInvites(evenement, partenaires = [], qui = "tous") {
   const parId = new Map(partenaires.map((p) => [p.id, p]));
   const retenus = (evenement?.presences || []).filter(filtre).map((x) => parId.get(x.partenaireId)).filter(Boolean)
     .sort((a, b) => String(a.nom).localeCompare(String(b.nom), "fr"));
-  const vus = new Set(), numeros = [], sansTel = [];
+  const parCle = new Map(), sansTel = []; // clé chiffres → { numero, sponsors }
   for (const p of retenus) {
     const siens = [...(p.contacts || []).map((c) => c.tel), p.tel, p.telephone]
       .map((t) => String(t || "").trim().replace(/\s+/g, " ")).filter((t) => cleTelephone(t));
     if (!siens.length) { sansTel.push(p.nom); continue; }
-    for (const t of siens) { const k = cleTelephone(t); if (!vus.has(k)) { vus.add(k); numeros.push(t); } }
+    for (const t of siens) {
+      const k = cleTelephone(t);
+      if (!parCle.has(k)) parCle.set(k, { numero: t, sponsors: [] });
+      const d = parCle.get(k); if (!d.sponsors.includes(p.nom)) d.sponsors.push(p.nom);
+    }
   }
-  return { numeros, sansTel, partenaires: retenus.length };
+  const details = [...parCle.values()];
+  return {
+    numeros: details.map((d) => d.numero),
+    annotes: details.map((d) => `${d.numero} (${d.sponsors.join(" / ")})`), // v8 : « 06 77 12 94 00 (Aesio) » ; numéro partagé → « (A / B) »
+    details, sansTel, partenaires: retenus.length
+  };
+}
+
+// =============================================================================
+// v8 — ÉVÉNEMENTS : participants en badges. En base, « noms » reste UNE chaîne (rétrocompatible : export Excel,
+// fenêtre « Nouveau contact », historique) ; on la découpe sur « + », « , », « ; » ou retour à la ligne,
+// et on la réécrit au format « Nom 1 + Nom 2 ».
+// =============================================================================
+export function listeParticipants(noms) {
+  const vus = new Set();
+  return String(noms || "").split(/\s*(?:\+|,|;|\n)\s*/).map((n) => n.trim().replace(/\s+/g, " ")).filter((n) => {
+    const k = n.toLocaleLowerCase("fr"); if (!n || vus.has(k)) return false; vus.add(k); return true;
+  });
+}
+export const texteParticipants = (liste) => listeParticipants((liste || []).join(" + ")).join(" + ");
+
+// Nombre de personnes après ajout / retrait de noms : jamais moins que le nombre de noms ; si le compteur
+// suivait exactement les noms (ou était à 0), il continue de les suivre. Sinon (ex. « 3 personnes dont 1 nommée »),
+// il n'est pas réduit par un retrait.
+export function personnesApres(personnes, avant, apres) {
+  const p = Math.max(0, Math.floor(Number(personnes) || 0));
+  if (apres >= avant) return Math.max(p, apres);
+  return p === avant ? apres : Math.max(p, apres);
 }
 
 // =============================================================================

@@ -240,16 +240,26 @@ const URL = BASE + "app.html";
   await A.waitForSelector("#modal-phones:not([hidden])");
   assert.ok(Number(await A.textContent("#phones-count")) > 0, "Des numéros sont proposés pour tous les invités");
   await A.check('#form-phones input[name="sep"][value="ligne"]');
-  assert.ok(!(await A.inputValue("#phones-apercu")).includes(","), "Le séparateur « retour à la ligne » est appliqué");
+  assert.match(await A.inputValue("#phones-apercu"), /\(.+\)/, "L'aperçu affiche le nom du sponsor");
+  assert.equal(await A.isChecked('#form-phones input[name="avecNoms"]'), false, "Par défaut, numéros seuls");
   await A.click("#phones-copier");
   await A.waitForFunction(() => /numéros? de téléphone copiés?/.test(document.getElementById("toast")?.textContent || "")); // le toast des e-mails peut encore être affiché
+  assert.ok(!(await A.evaluate(() => navigator.clipboard.readText())).includes("("), "Copie sans le nom du sponsor");
   assert.equal(await A.isHidden("#modal-phones"), true, "La fenêtre se ferme après la copie");
 
-  console.log("v7 — Événements : « Noms des participants » lisibles en entier...");
-  const noms = A.locator("#attendance-tbody textarea[data-field=noms]").first();
-  await noms.fill("Luis MANSO + Benoît Lefebvre + Marie-Christine Dupont + Jean Martin");
-  await noms.blur();
-  assert.ok(await noms.evaluate((t) => t.scrollHeight <= t.clientHeight + 1 && t.scrollWidth <= t.clientWidth + 1), "Aucun nom coupé");
+  console.log("v8 — Événements : participants en badges...");
+  const ligneP = A.locator("#attendance-tbody tr[data-presence-id]").first();
+  const saisie = ligneP.locator("[data-participant-input]");
+  const nbAvant = await ligneP.locator(".participant").count();
+  await saisie.fill("Luis MANSO + Benoît Lefebvre");
+  await saisie.press("Enter");
+  await A.waitForFunction((n) => document.querySelectorAll("#attendance-tbody tr[data-presence-id]")[0].querySelectorAll(".participant").length === n + 2, nbAvant);
+  assert.ok(Number(await ligneP.locator("[data-field=personnes]").inputValue()) >= nbAvant + 2, "Le compteur de personnes suit les participants");
+  await saisie.fill("Marie-Christine Dupont");
+  await ligneP.locator("[data-add-participant]").click();
+  await A.waitForFunction((n) => document.querySelectorAll("#attendance-tbody tr[data-presence-id]")[0].querySelectorAll(".participant").length === n + 3, nbAvant);
+  await ligneP.locator(".participant", { hasText: "Benoît Lefebvre" }).locator("[data-remove-participant]").click();
+  await A.waitForFunction(() => !document.querySelector("#attendance-tbody tr[data-presence-id]").textContent.includes("Benoît Lefebvre"));
 
   console.log("v5 — Événements : « À contacter », « Contacté en attente », « Oui », « Non »...");
   await A.goto(URL + "#/evenements");

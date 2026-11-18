@@ -471,17 +471,30 @@ body[data-screen="reglages"] #screen-reglages { display: block; }
 .chart-col__lbl-court { display: none; }
 @media (max-width: 479px) { .chart-col__lbl-long { display: none; } .chart-col__lbl-court { display: inline; } }
 
-/* ============================== v7 — ÉVÉNEMENTS : PRÉSENCES ==============================
-   « Noms des participants » : colonne élargie + zone de texte qui passe à la ligne et s'agrandit avec son contenu
-   (field-sizing: content quand le navigateur le gère, sinon hauteur calculée dans evenements.js › ajusterNoms).
-   Le texte complet est aussi repris dans l'infobulle (title). */
-.noms-participants {
-  display: block; width: 100%; min-width: 0;
-  min-height: 34px !important; height: 34px; line-height: 22px;
-  resize: none; overflow: hidden; field-sizing: content;
-  white-space: pre-wrap; overflow-wrap: anywhere;
+/* ============================== v7/v8 — ÉVÉNEMENTS : PRÉSENCES ==============================
+   v8 — Participants en badges : chaque nom dans une pastille lisible en entier (retour à la ligne si besoin),
+   « × » pour le retirer, et une petite saisie « Ajouter un participant... » + bouton « + » en dessous. */
+.participants { display: grid; gap: 6px; min-width: 0; }
+.participants__list { display: flex; flex-wrap: wrap; gap: 5px; margin: 0; padding: 0; list-style: none; min-width: 0; }
+.participants__list:empty { display: none; }
+.participant {
+  display: inline-flex; align-items: center; gap: 2px; max-width: 100%;
+  padding: 2px 3px 2px 10px; border-radius: var(--radius-full);
+  background: var(--color-accent-soft); border: 1px solid color-mix(in srgb, var(--color-accent) 28%, transparent);
+  color: var(--color-text); font-size: var(--text-xs); font-weight: 600; line-height: 1.5;
 }
-@supports (field-sizing: content) { .noms-participants { height: auto; } }
+.participant__nom { overflow-wrap: anywhere; min-width: 0; }
+.participant__x {
+  display: inline-grid; place-items: center; flex: none; width: 18px; height: 18px; padding: 0;
+  border: 0; border-radius: var(--radius-full); background: transparent; color: var(--color-text-muted); cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+.participant__x:hover { background: color-mix(in srgb, var(--color-accent) 18%, transparent); color: var(--color-accent-text); }
+.participant__x:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.icon--xs { width: 11px; height: 11px; }
+.participants__add { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.participants__add input { flex: 1 1 auto; min-width: 0; width: 100%; }
+.participants__add .btn { flex: none; }
 #attendance-tbody select { min-width: 172px; } /* « Contacté en attente » lisible en entier, flèche comprise */
 @media (min-width: 760px) {
   .table--presences th.th--presence { width: 188px; }

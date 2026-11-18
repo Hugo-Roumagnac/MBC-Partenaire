@@ -941,8 +941,11 @@
         </fieldset>
         <div class="field">
           <label for="phones-apercu">Numéros (<span id="phones-count">0</span>)</label>
-          <textarea id="phones-apercu" rows="4" readonly class="mono"></textarea>
+          <textarea id="phones-apercu" rows="5" readonly class="mono" aria-describedby="phones-aide"></textarea>
+          <p class="field__hint" id="phones-aide">Le nom du sponsor est affiché pour vous repérer ; il n'est copié que si la case ci-dessous est cochée.</p>
         </div>
+        <!-- v8 : décochée par défaut → numéros seuls, prêts pour un SMS groupé / WhatsApp -->
+        <label class="choix__opt"><input type="checkbox" name="avecNoms"><span>Inclure le nom du sponsor lors de la copie</span></label>
         <p class="alert alert--warning" id="phones-manquants" role="status" hidden></p>
         <div class="modal__foot">
           <button type="button" class="btn btn--ghost" data-close-modal>Annuler</button>
