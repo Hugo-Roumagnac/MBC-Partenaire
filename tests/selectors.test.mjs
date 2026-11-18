@@ -219,3 +219,24 @@ test("v6 — signatures par semaine d'après le journal", async () => {
   assert.equal(s.length, 8); assert.equal(s[7], 2); assert.equal(s[0] <= s[7], true);
   assert.deepEqual(signaturesParSemaine([], "2026-11-15"), []);
 });
+
+test("v7 — numéros des invités : filtres, doublons (+33 = 0), champs vides ignorés, sans numéro listés", async () => {
+  const { telephonesInvites, cleTelephone } = await import("../front-end/js/selectors.js");
+  assert.equal(cleTelephone("+33 6 12 34 56 78"), "0612345678");
+  assert.equal(cleTelephone("0033 6 12 34 56 78"), "0612345678");
+  assert.equal(cleTelephone("06.12.34.56.78"), "0612345678");
+  assert.equal(cleTelephone("  "), "");
+  assert.equal(cleTelephone("n/a"), "");
+  const partenaires = [
+    { id: "a", nom: "Alpha", contacts: [{ tel: "06 12 34 56 78" }, { tel: "05  56 00 11 22" }] },
+    { id: "b", nom: "Bravo", contacts: [{ tel: "+33 6 12 34 56 78" }] }, // même numéro qu'Alpha
+    { id: "c", nom: "Charlie", contacts: [{ tel: "" }, { tel: "—" }] },
+    { id: "d", nom: "Delta", contacts: [{ tel: "07 00 00 00 01" }] },
+    { id: "e", nom: "Echo" } // aucun contact
+  ];
+  const evt = { presences: [{ partenaireId: "a", presence: "Oui" }, { partenaireId: "b", presence: "Contacté en attente" }, { partenaireId: "c", presence: "Oui" }, { partenaireId: "d", presence: "Non" }, { partenaireId: "e", presence: "À contacter" }, { partenaireId: "zz", presence: "Oui" }] };
+  assert.deepEqual(telephonesInvites(evt, partenaires, "tous"), { numeros: ["06 12 34 56 78", "05 56 00 11 22", "07 00 00 00 01"], sansTel: ["Charlie", "Echo"], partenaires: 5 });
+  assert.deepEqual(telephonesInvites(evt, partenaires, "oui"), { numeros: ["06 12 34 56 78", "05 56 00 11 22"], sansTel: ["Charlie"], partenaires: 2 });
+  assert.deepEqual(telephonesInvites(evt, partenaires, "attente"), { numeros: ["+33 6 12 34 56 78"], sansTel: ["Echo"], partenaires: 2 });
+  assert.deepEqual(telephonesInvites({ presences: [] }, partenaires).numeros, []);
+});

@@ -432,9 +432,10 @@
               <div class="event-stats" id="event-stats"></div>
 
               <h4 style="margin: 0 0 var(--space-2)">Présences par partenaire</h4>
-              <div class="table-wrap">
-                <table class="table table--cards table--compact">
-                  <thead><tr><th scope="col">Partenaire</th><th scope="col">Présence</th><th scope="col" class="num">Personnes</th><th scope="col">Noms</th><th scope="col"><span class="sr-only">Retirer</span></th></tr></thead>
+              <div class="table-wrap table-wrap--presences">
+                <table class="table table--cards table--compact table--presences">
+                  <!-- v7 : colonne « Noms » élargie (zone de texte auto-extensible, voir evenements.js › ajusterNoms) -->
+                  <thead><tr><th scope="col" class="th--partenaire">Partenaire</th><th scope="col" class="th--presence">Présence</th><th scope="col" class="num th--personnes">Personnes</th><th scope="col" class="th--noms">Noms</th><th scope="col" class="th--retirer"><span class="sr-only">Retirer</span></th></tr></thead>
                   <tbody id="attendance-tbody"></tbody>
                 </table>
               </div>
@@ -445,6 +446,8 @@
                 <button type="button" class="btn btn--small" id="btn-invite-signed"><svg class="icon icon--sm"><use href="#i-users"/></svg>Inviter tous les signés</button>
                 <!-- v6 : adresses e-mail des contacts des partenaires invités, copiées dans le presse-papiers -->
                 <button type="button" class="btn btn--small" id="btn-copy-emails"><svg class="icon icon--sm"><use href="#i-mail"/></svg>Copier les e-mails</button>
+                <!-- v7 : numéros de téléphone des contacts des partenaires invités, copiés dans le presse-papiers -->
+                <button type="button" class="btn btn--small" id="btn-copy-phones"><svg class="icon icon--sm"><use href="#i-phone"/></svg>Copier les numéros</button>
               </div>
             </article>
           </div>
@@ -909,6 +912,41 @@
         <div class="modal__foot">
           <button type="button" class="btn btn--ghost" data-close-modal>Annuler</button>
           <button type="submit" class="btn btn--accent" id="emails-copier"><svg class="icon icon--sm"><use href="#i-copy"/></svg><span>Copier les adresses</span></button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ===== v7 — Modale : copier les numéros de téléphone des invités d'un événement (evenements.js) ===== -->
+  <div id="modal-phones" class="modal" hidden>
+    <div class="modal__backdrop" data-close-modal></div>
+    <div class="modal__panel card" role="dialog" aria-modal="true" aria-labelledby="h-phones">
+      <div class="modal__head">
+        <h2 id="h-phones">Copier les numéros</h2>
+        <button type="button" class="btn btn--ghost btn--icon" data-close-modal aria-label="Fermer"><svg class="icon"><use href="#i-x"/></svg></button>
+      </div>
+      <form id="form-phones" class="form-grid" data-no-submit>
+        <p class="muted" id="phones-evenement" style="font-size: var(--text-sm)"></p>
+        <fieldset class="choix">
+          <legend class="field__label">Qui ?</legend>
+          <label class="choix__opt"><input type="radio" name="qui" value="tous" checked><span>Tous les invités <span class="choix__n" data-n="tous"></span></span></label>
+          <label class="choix__opt"><input type="radio" name="qui" value="oui"><span>Seulement ceux qui ont répondu « Oui » <span class="choix__n" data-n="oui"></span></span></label>
+          <label class="choix__opt"><input type="radio" name="qui" value="attente"><span>Ceux qui n'ont pas encore répondu <span class="choix__n" data-n="attente"></span></span></label>
+        </fieldset>
+        <fieldset class="choix">
+          <legend class="field__label">Séparer les numéros par</legend>
+          <label class="choix__opt"><input type="radio" name="sep" value="virgule" checked><span>Virgule (SMS groupé, WhatsApp)</span></label>
+          <label class="choix__opt"><input type="radio" name="sep" value="point-virgule"><span>Point-virgule</span></label>
+          <label class="choix__opt"><input type="radio" name="sep" value="ligne"><span>Retour à la ligne</span></label>
+        </fieldset>
+        <div class="field">
+          <label for="phones-apercu">Numéros (<span id="phones-count">0</span>)</label>
+          <textarea id="phones-apercu" rows="4" readonly class="mono"></textarea>
+        </div>
+        <p class="alert alert--warning" id="phones-manquants" role="status" hidden></p>
+        <div class="modal__foot">
+          <button type="button" class="btn btn--ghost" data-close-modal>Annuler</button>
+          <button type="submit" class="btn btn--accent" id="phones-copier"><svg class="icon icon--sm"><use href="#i-copy"/></svg><span>Copier les numéros</span></button>
         </div>
       </form>
     </div>

@@ -4,7 +4,7 @@ import { ficheHref } from "./router.js";
 import { formatDate, escapeHtml, showToast, slugify } from "./utils.js";
 import { aujourdhui } from "./dates.js";
 import { ouvrirModale, fermerModale } from "./modal.js";
-import { PRESENCES, PRESENCE_CONTACT, PRESENCE_ATTENTE, emailsInvites } from "./selectors.js"; // v5 : « À contacter », « Contacté en attente », « Oui », « Non »
+import { PRESENCES, PRESENCE_CONTACT, PRESENCE_ATTENTE, emailsInvites, telephonesInvites } from "./selectors.js"; // v5 : « À contacter », « Contacté en attente », « Oui », « Non »
 import { ouvrirNouveauContact } from "./contacts.js"; // v2 : fenêtre « Nouveau contact »
 import { icon } from "./icons.js"; // v2 : icône du bouton « Ajouter le contact »
 
@@ -85,6 +85,7 @@ export function initEvenements() {
   });
 
   initCopieEmails(); // v6 : bouton « Copier les e-mails »
+  initCopieNumeros(); // v7 : bouton « Copier les numéros »
 
   // Présences : délégation (les lignes sont recréées à chaque rendu)
   const tbody = $("attendance-tbody");
@@ -92,7 +93,8 @@ export function initEvenements() {
     const el = e.target.closest("[data-field]"); if (!el) return;
     const id = el.closest("tr")?.dataset.presenceId; if (!id) return;
     const champ = el.dataset.field;
-    const valeur = champ === "personnes" ? Math.max(0, Math.floor(Number(el.value) || 0)) : el.value;
+    const valeur = champ === "personnes" ? Math.max(0, Math.floor(Number(el.value) || 0)) : champ === "noms" ? el.value.replace(/\s*\n+\s*/g, " ").trim() : el.value; // v7 : noms sur une ligne (collage multi-lignes)
+    if (champ === "noms") { el.value = valeur; el.title = valeur; ajusterHauteur(el); }
     const patch = { [champ]: valeur };
     if (champ === "presence" && valeur === "Oui") { // « Oui » sans nombre → 1 personne par défaut
       const row = store.raw.presences.find((x) => x.id === id);
@@ -101,6 +103,13 @@ export function initEvenements() {
     try { await ecrire("presences", id, patch); showToast(champ === "presence" && valeur === PRESENCE_CONTACT ? "Statut « À contacter » enregistré : visible sur la fiche et dans le pipeline" : "Présence enregistrée"); } // v3 : sauvegarde immédiate
     catch (err) { console.error(err); showToast("Échec de l'enregistrement", { erreur: true }); }
   });
+  // v7 — Noms des participants : hauteur ajustée pendant la saisie, Entrée valide (pas de saut de ligne enregistré)
+  tbody?.addEventListener("input", (e) => { if (e.target.matches("textarea[data-field='noms']")) ajusterHauteur(e.target); });
+  tbody?.addEventListener("focusin", (e) => { if (e.target.matches("textarea[data-field='noms']")) ajusterHauteur(e.target); });
+  tbody?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.isComposing && e.target.matches("textarea[data-field='noms']")) { e.preventDefault(); e.target.blur(); }
+  });
+  let resizeT; addEventListener("resize", () => { clearTimeout(resizeT); resizeT = setTimeout(() => ajusterNoms(), 120); });
   tbody?.addEventListener("click", async (e) => {
     const c = e.target.closest("[data-contact-presence]"); // fenêtre « Nouveau contact » (facultatif)
     if (c) { ouvrirContactPresence(c.dataset.contactPresence); return; }
@@ -181,7 +190,7 @@ export function renderEvenements() {
 function renderAttendance(evt) {
   const tbody = $("attendance-tbody");
   if (!tbody) return;
-  if (tbody.contains(document.activeElement) && document.activeElement.tagName === "INPUT") return; // ne pas voler la saisie
+  if (tbody.contains(document.activeElement) && ["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) return; // ne pas voler la saisie
   const rows = [...(evt.presences || [])].sort((a, b) => String(getPartner(a.partenaireId)?.nom || "").localeCompare(String(getPartner(b.partenaireId)?.nom || ""), "fr"));
   if (!rows.length) { tbody.innerHTML = `<tr><td colspan="5" class="empty-cell">Aucun partenaire invité. Ajoutez-en ci-dessous.</td></tr>`; return; }
   tbody.innerHTML = rows.map((row) => {
@@ -193,10 +202,23 @@ function renderAttendance(evt) {
         <td class="td--main">${p ? `<a class="link-fiche" href="${ficheHref(p.id)}">${escapeHtml(name)}</a>` : escapeHtml(name)} <span class="badge badge--${ton}" style="margin-left:4px">${escapeHtml(row.presence)}</span>${row.presence === PRESENCE_CONTACT && p ? ` <button type="button" class="btn btn--small btn--ghost" data-contact-presence="${escapeHtml(row.id)}">${icon("plus", "icon--sm")}Ajouter le contact</button>` : ""}</td>
         <td data-label="Présence"><select class="input--sm" data-field="presence" aria-label="Présence de ${escapeHtml(name)}">${PRESENCES.map((v) => `<option ${v === row.presence ? "selected" : ""}>${v}</option>`).join("")}</select></td>
         <td data-label="Personnes" class="num"><input class="input--sm" data-field="personnes" type="number" min="0" value="${Number(row.personnes) || 0}" aria-label="Nombre de personnes, ${escapeHtml(name)}" style="max-width:76px"></td>
-        <td data-label="Noms"><input class="input--sm" data-field="noms" type="text" value="${escapeHtml(row.noms || "")}" placeholder="Noms des participants" aria-label="Noms, ${escapeHtml(name)}"></td>
-        <td><button type="button" class="btn btn--ghost btn--icon btn--small" data-remove-guest="${escapeHtml(row.id)}" aria-label="Retirer ${escapeHtml(name)}" title="Retirer"><svg class="icon icon--sm"><use href="#i-x"/></svg></button></td>
+        <td data-label="Noms" class="td--noms"><textarea class="input--sm noms-participants" data-field="noms" rows="1" placeholder="Noms des participants" aria-label="Noms des participants, ${escapeHtml(name)}"${row.noms ? ` title="${escapeHtml(row.noms)}"` : ""}>${escapeHtml(row.noms || "")}</textarea></td>
+        <td class="td--retirer"><button type="button" class="btn btn--ghost btn--icon btn--small" data-remove-guest="${escapeHtml(row.id)}" aria-label="Retirer ${escapeHtml(name)}" title="Retirer"><svg class="icon icon--sm"><use href="#i-x"/></svg></button></td>
       </tr>`;
   }).join("");
+  ajusterNoms(tbody);
+}
+
+// v7 — « Noms des participants » : zone de texte qui s'agrandit avec son contenu (retour à la ligne automatique),
+// pour que tous les noms restent lisibles. CSS `field-sizing: content` quand le navigateur le gère, sinon calcul ici.
+const FIELD_SIZING = typeof CSS !== "undefined" && CSS.supports?.("field-sizing", "content");
+function ajusterHauteur(t) {
+  if (FIELD_SIZING || !t || !t.offsetParent) return; // écran masqué : on refera le calcul à l'affichage / au focus
+  t.style.height = "auto";
+  t.style.height = `${t.scrollHeight + (t.offsetHeight - t.clientHeight)}px`;
+}
+function ajusterNoms(racine = $("attendance-tbody")) {
+  racine?.querySelectorAll("textarea[data-field='noms']").forEach(ajusterHauteur);
 }
 
 function fillGuestSelect(evt) {
@@ -244,32 +266,59 @@ async function onDeleteEvent(e) {
 }
 
 // =============================================================================
-// v6 — « COPIER LES E-MAILS » : adresses des contacts des partenaires invités
+// v6 — « COPIER LES E-MAILS » / v7 — « COPIER LES NUMÉROS » : coordonnées des contacts des partenaires invités
 // =============================================================================
 // Déroulé : le bouton ouvre une fenêtre → on choisit qui (tous / « Oui » / sans réponse) et le séparateur
-// → l'aperçu se met à jour → « Copier » place la liste dans le presse-papiers et affiche « X adresses e-mail copiées ».
-// Les partenaires invités qui n'ont aucun contact avec une adresse valide sont listés pour être complétés.
+// → l'aperçu se met à jour → « Copier » place la liste dans le presse-papiers et affiche un message de confirmation.
+// Les partenaires invités sans coordonnée exploitable sont listés pour être complétés.
+// Les deux fenêtres partagent la même logique (initCopieListe) : seuls la source des données et les libellés changent.
+const pluriel = (n, mot) => `${n} ${mot}${n > 1 ? "s" : ""}`;
+
 function initCopieEmails() {
-  const modal = $("modal-emails"), form = $("form-emails");
+  initCopieListe({
+    bouton: "btn-copy-emails", modal: "modal-emails", form: "form-emails", prefixe: "emails", sepDefaut: "; ",
+    calcul: (evt, cle) => { const r = emailsInvites(evt, store.partenaires, cle); return { valeurs: r.adresses, manquants: r.sansEmail, partenaires: r.partenaires }; },
+    libelleBouton: (n) => n ? `Copier ${pluriel(n, "adresse")}` : "Aucune adresse à copier",
+    alerte: (noms) => `Sans adresse e-mail (${noms.length}) : ${noms.join(", ")}. Ajoutez un contact dans leur fiche.`,
+    toast: (n) => `${pluriel(n, "adresse")} e-mail copiée${n > 1 ? "s" : ""}`
+  });
+}
+
+// v7 — séparateurs des numéros : la valeur des boutons radio est une clé (un retour à la ligne ne passe pas bien dans un attribut HTML)
+const SEPARATEURS_NUMEROS = { virgule: ", ", "point-virgule": "; ", ligne: "\n" };
+function initCopieNumeros() {
+  initCopieListe({
+    bouton: "btn-copy-phones", modal: "modal-phones", form: "form-phones", prefixe: "phones", sepDefaut: ", ", separateurs: SEPARATEURS_NUMEROS,
+    calcul: (evt, cle) => { const r = telephonesInvites(evt, store.partenaires, cle); return { valeurs: r.numeros, manquants: r.sansTel, partenaires: r.partenaires }; },
+    libelleBouton: (n) => n ? `Copier ${pluriel(n, "numéro")}` : "Aucun numéro à copier",
+    alerte: (noms) => `Sans numéro de téléphone (${noms.length}) : ${noms.join(", ")}. Ajoutez un contact dans leur fiche.`,
+    toast: (n) => `${pluriel(n, "numéro")} de téléphone copié${n > 1 ? "s" : ""}`
+  });
+}
+
+// Fenêtre générique « Copier … » : ids `${prefixe}-evenement`, `-apercu`, `-count`, `-copier`, `-manquants`.
+function initCopieListe(c) {
+  const modal = $(c.modal), form = $(c.form);
   if (!modal || !form) return;
-  const choix = () => ({ qui: form.qui.value || "tous", sep: form.sep.value || "; " });
+  const el = (suffixe) => $(`${c.prefixe}-${suffixe}`);
+  const separateur = () => { const v = form.sep.value; return c.separateurs ? (c.separateurs[v] ?? c.sepDefaut) : (v || c.sepDefaut); };
   const majApercu = () => {
     const evt = selectedEvent(); if (!evt) return;
-    const { qui, sep } = choix();
-    for (const cle of ["tous", "oui", "attente"]) { const n = form.querySelector(`[data-n="${cle}"]`); if (n) n.textContent = `(${emailsInvites(evt, store.partenaires, cle).partenaires})`; }
-    const r = emailsInvites(evt, store.partenaires, qui);
-    $("emails-apercu").value = r.adresses.join(sep);
-    $("emails-count").textContent = String(r.adresses.length);
-    const bouton = $("emails-copier"); bouton.disabled = !r.adresses.length;
-    bouton.querySelector("span").textContent = r.adresses.length ? `Copier ${r.adresses.length} adresse${r.adresses.length > 1 ? "s" : ""}` : "Aucune adresse à copier";
-    const manque = $("emails-manquants");
-    manque.hidden = !r.sansEmail.length;
-    manque.textContent = r.sansEmail.length ? `Sans adresse e-mail (${r.sansEmail.length}) : ${r.sansEmail.join(", ")}. Ajoutez un contact dans leur fiche.` : "";
+    const qui = form.qui.value || "tous";
+    for (const cle of ["tous", "oui", "attente"]) { const n = form.querySelector(`[data-n="${cle}"]`); if (n) n.textContent = `(${c.calcul(evt, cle).partenaires})`; }
+    const r = c.calcul(evt, qui);
+    el("apercu").value = r.valeurs.join(separateur());
+    el("count").textContent = String(r.valeurs.length);
+    const bouton = el("copier"); bouton.disabled = !r.valeurs.length;
+    bouton.querySelector("span").textContent = c.libelleBouton(r.valeurs.length);
+    const manque = el("manquants");
+    manque.hidden = !r.manquants.length;
+    manque.textContent = r.manquants.length ? c.alerte(r.manquants) : "";
   };
-  $("btn-copy-emails")?.addEventListener("click", () => {
+  $(c.bouton)?.addEventListener("click", () => {
     const evt = selectedEvent(); if (!evt) return;
     if (!(evt.presences || []).length) { showToast("Aucun partenaire invité à cet événement"); return; }
-    $("emails-evenement").textContent = `${evt.nom} · ${formatDate(evt.date)}`;
+    el("evenement").textContent = `${evt.nom} · ${formatDate(evt.date)}`;
     form.qui.value = "tous";
     majApercu();
     ouvrirModale(modal);
@@ -277,9 +326,9 @@ function initCopieEmails() {
   form.addEventListener("change", majApercu);
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const texte = $("emails-apercu").value, n = Number($("emails-count").textContent) || 0;
+    const texte = el("apercu").value, n = Number(el("count").textContent) || 0;
     if (!n) return;
-    if (await copier(texte, $("emails-apercu"))) { fermerModale(modal); showToast(`${n} adresse${n > 1 ? "s" : ""} e-mail copiée${n > 1 ? "s" : ""}`); }
+    if (await copier(texte, el("apercu"))) { fermerModale(modal); showToast(c.toast(n)); }
     else showToast("Copie impossible : sélectionnez le texte et copiez-le à la main", { erreur: true });
   });
 }

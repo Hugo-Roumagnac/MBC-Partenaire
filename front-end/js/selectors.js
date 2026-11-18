@@ -381,6 +381,34 @@ export function emailsInvites(evenement, partenaires = [], qui = "tous") {
 }
 
 // =============================================================================
+// v7 — ÉVÉNEMENTS : numéros de téléphone des partenaires invités (bouton « Copier les numéros »)
+// =============================================================================
+// Mêmes filtres « qui » que pour les e-mails. Les numéros viennent du champ « tel » des CONTACTS de chaque fiche
+// (et, s'il existe, d'un champ « tel » / « telephone » porté par la fiche elle-même).
+// Doublons : comparés chiffres seuls, « +33 6… » et « 06… » étant le même numéro ; le numéro est rendu tel que saisi.
+// Champs vides ou sans au moins 6 chiffres : ignorés.
+// → { numeros: [uniques, ordre des partenaires], sansTel: [noms des partenaires sans numéro], partenaires: nombre retenu }
+export function cleTelephone(tel) {
+  let d = String(tel || "").replace(/\D/g, "");
+  if (/^\s*(\+|00)33/.test(String(tel || ""))) d = "0" + d.replace(/^(00)?33/, ""); // +33 6 12… / 0033 6 12… → 06 12…
+  return d.length >= 6 ? d : "";
+}
+export function telephonesInvites(evenement, partenaires = [], qui = "tous") {
+  const filtre = FILTRES_EMAILS[qui] || FILTRES_EMAILS.tous;
+  const parId = new Map(partenaires.map((p) => [p.id, p]));
+  const retenus = (evenement?.presences || []).filter(filtre).map((x) => parId.get(x.partenaireId)).filter(Boolean)
+    .sort((a, b) => String(a.nom).localeCompare(String(b.nom), "fr"));
+  const vus = new Set(), numeros = [], sansTel = [];
+  for (const p of retenus) {
+    const siens = [...(p.contacts || []).map((c) => c.tel), p.tel, p.telephone]
+      .map((t) => String(t || "").trim().replace(/\s+/g, " ")).filter((t) => cleTelephone(t));
+    if (!siens.length) { sansTel.push(p.nom); continue; }
+    for (const t of siens) { const k = cleTelephone(t); if (!vus.has(k)) { vus.add(k); numeros.push(t); } }
+  }
+  return { numeros, sansTel, partenaires: retenus.length };
+}
+
+// =============================================================================
 // v6 — GRAPHIQUES DU TABLEAU DE BORD (calculs purs ; l'affichage est dans charts.js)
 // =============================================================================
 const MOIS_COURTS = ["Janv.", "Févr.", "Mars", "Avr.", "Mai", "Juin", "Juil.", "Août", "Sept.", "Oct.", "Nov.", "Déc."];

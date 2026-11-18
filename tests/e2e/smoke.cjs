@@ -235,6 +235,22 @@ const URL = BASE + "app.html";
   assert.match(await A.textContent("#toast"), /adresses? e-mail copiées?/);
   assert.equal(await A.isHidden("#modal-emails"), true, "La fenêtre se ferme après la copie");
 
+  console.log("v7 — Événements : copier les numéros des invités...");
+  await A.click("#btn-copy-phones");
+  await A.waitForSelector("#modal-phones:not([hidden])");
+  assert.ok(Number(await A.textContent("#phones-count")) > 0, "Des numéros sont proposés pour tous les invités");
+  await A.check('#form-phones input[name="sep"][value="ligne"]');
+  assert.ok(!(await A.inputValue("#phones-apercu")).includes(","), "Le séparateur « retour à la ligne » est appliqué");
+  await A.click("#phones-copier");
+  await A.waitForFunction(() => /numéros? de téléphone copiés?/.test(document.getElementById("toast")?.textContent || "")); // le toast des e-mails peut encore être affiché
+  assert.equal(await A.isHidden("#modal-phones"), true, "La fenêtre se ferme après la copie");
+
+  console.log("v7 — Événements : « Noms des participants » lisibles en entier...");
+  const noms = A.locator("#attendance-tbody textarea[data-field=noms]").first();
+  await noms.fill("Luis MANSO + Benoît Lefebvre + Marie-Christine Dupont + Jean Martin");
+  await noms.blur();
+  assert.ok(await noms.evaluate((t) => t.scrollHeight <= t.clientHeight + 1 && t.scrollWidth <= t.clientWidth + 1), "Aucun nom coupé");
+
   console.log("v5 — Événements : « À contacter », « Contacté en attente », « Oui », « Non »...");
   await A.goto(URL + "#/evenements");
   const ligne = A.locator("#attendance-tbody tr[data-presence-id]").first();

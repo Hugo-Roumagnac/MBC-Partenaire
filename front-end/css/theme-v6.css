@@ -470,3 +470,52 @@ body[data-screen="reglages"] #screen-reglages { display: block; }
 .chart-col--autres .chart-tip strong { text-transform: none; }
 .chart-col__lbl-court { display: none; }
 @media (max-width: 479px) { .chart-col__lbl-long { display: none; } .chart-col__lbl-court { display: inline; } }
+
+/* ============================== v7 — ÉVÉNEMENTS : PRÉSENCES ==============================
+   « Noms des participants » : colonne élargie + zone de texte qui passe à la ligne et s'agrandit avec son contenu
+   (field-sizing: content quand le navigateur le gère, sinon hauteur calculée dans evenements.js › ajusterNoms).
+   Le texte complet est aussi repris dans l'infobulle (title). */
+.noms-participants {
+  display: block; width: 100%; min-width: 0;
+  min-height: 34px !important; height: 34px; line-height: 22px;
+  resize: none; overflow: hidden; field-sizing: content;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+@supports (field-sizing: content) { .noms-participants { height: auto; } }
+#attendance-tbody select { min-width: 172px; } /* « Contacté en attente » lisible en entier, flèche comprise */
+@media (min-width: 760px) {
+  .table--presences th.th--presence { width: 188px; }
+  .table--presences th.th--personnes { width: 96px; }
+  .table--presences th.th--noms { width: 36%; min-width: 250px; }
+  .table--presences th.th--retirer { width: 44px; }
+  .table--presences td { vertical-align: top; }
+  .table--presences td.td--main { padding-top: 13px; }
+  .table--presences td[data-label="Présence"], .table--presences td[data-label="Personnes"], .table--presences td.td--noms { padding-top: 7px; }
+}
+/* Tableau étroit (panneau de détail à côté de la liste des événements, écrans portables) : chaque partenaire
+   sur deux lignes — entreprise / présence / personnes / retirer, puis « Noms des participants » sur toute la largeur. */
+@media (min-width: 760px) {
+  .table-wrap--presences { container: presences / inline-size; }
+  @container presences (max-width: 899px) {
+    .table--presences, .table--presences thead, .table--presences tbody { display: block; }
+    .table--presences tr { display: grid; grid-template-columns: minmax(0, 1fr) 188px 96px 44px; grid-template-areas: "main pres pers del" "noms noms noms del"; border-bottom: 1px solid var(--color-border); }
+    .table--presences tbody tr:last-child { border-bottom: 0; }
+    .table--presences thead tr { grid-template-areas: "main pres pers del"; }
+    .table--presences th, .table--presences td { border-bottom: 0; }
+    .table--presences .th--partenaire, .table--presences td.td--main { grid-area: main; }
+    .table--presences .th--presence, .table--presences td[data-label="Présence"] { grid-area: pres; }
+    .table--presences .th--personnes, .table--presences td[data-label="Personnes"] { grid-area: pers; }
+    .table--presences .th--noms, .table--presences td.td--noms { grid-area: noms; }
+    .table--presences .th--retirer, .table--presences td.td--retirer { grid-area: del; }
+    .table--presences th.th--noms { display: none; } /* le placeholder « Noms des participants » sert de libellé */
+    .table--presences td.td--noms { padding-top: 0 !important; padding-bottom: 10px; }
+    .table--presences td.empty-cell { grid-column: 1 / -1; }
+  }
+}
+/* Téléphone (lignes en cartes) : le libellé « Noms » au-dessus, la zone de texte sur toute la largeur */
+@media (max-width: 759px) {
+  .table--cards td.td--noms { flex-direction: column; align-items: stretch; gap: 4px; text-align: left; }
+}
+
+/* Fenêtre « Copier les numéros » : même rendu que « Copier les e-mails » */
+#phones-apercu { font-family: var(--font-mono); font-size: var(--text-xs); min-height: 88px; }
